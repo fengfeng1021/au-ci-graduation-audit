@@ -1,0 +1,446 @@
+/* =====================================================================
+   資傳系畢業審查工具 · 設計系統
+   ---------------------------------------------------------------------
+   一次定義每個「物件型別」的外觀與狀態，全站重複使用；
+   不替個別元素臨時調樣式。動效在 app.js 以對應 class 統一套用。
+
+   世界觀（use scene）：學生在桌前 / 手機上，為畢業學分焦慮地核對。
+   目標語氣：沉穩、精確、可信、給出明確結論。淺色紙感、單一主色。
+   ===================================================================== */
+
+/* ---------- Design tokens ---------- */
+:root {
+  /* 色彩：暖紙背景 + 暖墨色文字，次要文字由色相調（非灰） */
+  --paper:      #FAF8F4;
+  --surface:    #FFFFFF;
+  --surface-2:  #F4F1EB;
+  --ink:        #1D1B17;   /* 主文字 */
+  --ink-2:      #5C574C;   /* 次要文字：暖墨，對 --paper ≥ 4.5:1 */
+  --ink-3:      #6E6656;   /* metadata / 課程代碼，對 --surface ≥ 4.5:1 */
+  --line:       #E7E1D5;   /* 暖色髮絲線 */
+  --line-2:     #D8D1C2;
+
+  /* 主色：學術靛藍（品牌、作用中、標題底線） */
+  --accent:        #33456B;
+  --accent-strong: #26314F;
+  --accent-tint:   #EBEEF5;
+  --on-accent:     #FBFAF7;
+
+  /* 語意色：達成 / 進行中 / 缺修，皆帶對應淺底 */
+  --go:        #2F7D5B;  --go-tint:   #E4F0EA;  --go-strong:  #245F45;
+  --warn:      #8A5512;  --warn-tint: #F6EEDC;
+  --miss:      #B0463A;  --miss-tint: #F6E4E0;
+
+  /* 字級（明顯級距，數字用 tabular） */
+  --fs-display: clamp(2rem, 1.35rem + 2.6vw, 3rem);
+  --fs-h1:   1.5rem;
+  --fs-h2:   1.1875rem;
+  --fs-h3:   1.0625rem;
+  --fs-body: 1rem;
+  --fs-sm:   0.875rem;
+  --fs-xs:   0.75rem;
+  --lh-tight: 1.15;
+  --lh-body:  1.6;
+
+  /* 間距（4px 基準） */
+  --sp-1: 0.25rem; --sp-2: 0.5rem;  --sp-3: 0.75rem; --sp-4: 1rem;
+  --sp-5: 1.5rem;  --sp-6: 2rem;    --sp-8: 3rem;    --sp-10: 4rem;
+
+  /* 圓角 */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+
+  /* 陰影：帶 offset + 柔和 blur（非零位移光暈） */
+  --shadow-sm: 0 1px 2px rgba(29,27,23,.06), 0 1px 3px rgba(29,27,23,.05);
+  --shadow-md: 0 4px 14px rgba(29,27,23,.08), 0 2px 6px rgba(29,27,23,.05);
+  --shadow-lg: 0 16px 40px rgba(29,27,23,.12), 0 6px 14px rgba(29,27,23,.07);
+
+  /* 動效：Operate 模式——回饋要快，僅一個作者級主場景 */
+  --dur-fast: 0.15s;
+  --dur-base: 0.28s;
+  --dur-slow: 0.5s;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* 自信的指數減速 */
+
+  --measure: 68ch;
+  --container: 60rem;
+}
+
+/* ---------- Reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: 'Noto Sans TC', system-ui, -apple-system, 'Microsoft JhengHei', sans-serif;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
+h1, h2, h3 {
+  font-family: 'Noto Serif TC', Georgia, 'Songti TC', serif;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+svg { display: block; }
+:where(a) { color: var(--accent); text-underline-offset: 2px; }
+
+/* 焦點：所有可聚焦物件一致 */
+:where(button, input, select, textarea, [tabindex], summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* 數字統一：等寬對齊，用於學分數 */
+.tnum { font-variant-numeric: tabular-nums lining-nums; font-feature-settings: "tnum" 1; }
+
+/* ---------- Icon system（一致線寬，非 emoji） ---------- */
+.icon { width: 1.25em; height: 1.25em; stroke: currentColor; stroke-width: 1.75;
+  stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
+.icon--fill { fill: currentColor; stroke: none; }
+
+/* =====================================================================
+   AppShell：頁首（sticky 即時結論）/ 內容 / 頁尾
+   ===================================================================== */
+.appbar {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: saturate(1.2) blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.appbar__inner {
+  max-width: var(--container); margin: 0 auto;
+  padding: var(--sp-3) var(--sp-5);
+  display: flex; align-items: center; gap: var(--sp-4);
+}
+.appbar__mark { display: flex; align-items: center; gap: var(--sp-2); color: var(--accent); }
+.appbar__mark .icon { width: 1.4rem; height: 1.4rem; }
+.appbar__title { font-size: var(--fs-sm); font-weight: 600; letter-spacing: -0.01em;
+  font-family: 'Noto Serif TC', serif; color: var(--ink); white-space: nowrap; }
+.appbar__spacer { flex: 1; }
+
+/* 頁首右側即時小結（永遠能回答「我能畢業嗎」） */
+.appbar__verdict {
+  display: flex; align-items: center; gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+.appbar__credits { display: flex; align-items: baseline; gap: 0.15em; font-weight: 600; }
+.appbar__credits b { font-size: 1.125rem; letter-spacing: -0.02em; }
+.appbar__credits span { color: var(--ink-2); font-weight: 400; }
+.mini-meter { width: 90px; height: 6px; border-radius: var(--r-pill);
+  background: var(--surface-2); overflow: hidden; }
+.mini-meter__fill { height: 100%; width: 0%; border-radius: inherit;
+  background: var(--accent); transform-origin: left; }
+
+.page { max-width: var(--container); margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-10); }
+
+/* Intro / hero（非 hero-metric 樣板：不是大數字＋小標＋三統計） */
+.intro { max-width: var(--measure); margin-bottom: var(--sp-6); }
+.intro h1 { font-size: var(--fs-h1); margin-bottom: var(--sp-3); }
+.intro p { color: var(--ink-2); font-size: var(--fs-body); }
+.intro .meta-line { margin-top: var(--sp-3); font-size: var(--fs-sm); color: var(--ink-3);
+  display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); }
+.intro .meta-line span { display: inline-flex; align-items: center; gap: var(--sp-2); }
+
+/* =====================================================================
+   VerdictBanner：畢業結論（本工具的作者級主場景）
+   一條進度儀表 + 即時讀數 + 結論字，不是裝飾用統計卡。
+   ===================================================================== */
+.verdict {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--sp-6);
+  margin-bottom: var(--sp-6);
+}
+.verdict__head { display: flex; align-items: baseline; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.verdict__label { font-size: var(--fs-sm); color: var(--ink-2); letter-spacing: 0.02em; }
+.verdict__state {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  font-family: 'Noto Serif TC', serif; font-weight: 600;
+  font-size: var(--fs-h3);
+  padding: var(--sp-1) var(--sp-3); border-radius: var(--r-pill);
+  transition: color var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
+}
+.verdict__state .icon { width: 1.15rem; height: 1.15rem; }
+.verdict[data-state="go"]   .verdict__state { color: var(--go-strong); background: var(--go-tint); }
+.verdict[data-state="short"] .verdict__state { color: var(--warn); background: var(--warn-tint); }
+.verdict[data-state="hold"] .verdict__state { color: var(--miss); background: var(--miss-tint); }
+
+/* 大讀數：學分 / 128 */
+.verdict__readout { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.verdict__now { font-family: 'Noto Serif TC', serif; font-size: var(--fs-display);
+  font-weight: 600; letter-spacing: -0.03em; line-height: 1; color: var(--ink); }
+.verdict__of { font-size: var(--fs-h2); color: var(--ink-3); font-weight: 400; }
+.verdict__unit { font-size: var(--fs-body); color: var(--ink-2); align-self: flex-end; margin-bottom: 0.3em; }
+
+/* 主儀表 */
+.meter { height: 12px; border-radius: var(--r-pill); background: var(--surface-2);
+  overflow: hidden; position: relative; }
+.meter__fill { height: 100%; width: 0%; border-radius: inherit; background: var(--accent);
+  transform-origin: left; will-change: width; }
+.verdict[data-state="go"]   .meter__fill { background: var(--go); }
+.verdict[data-state="hold"] .meter__fill { background: var(--miss); }
+/* 128 門檻刻度線 */
+.meter__mark { position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--line-2); border-radius: 2px; }
+
+.verdict__foot { margin-top: var(--sp-4); display: flex; flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5); font-size: var(--fs-sm); color: var(--ink-2); }
+.verdict__foot b { color: var(--ink); font-weight: 600; }
+
+/* =====================================================================
+   Section / RequirementCard：每個分類一張，含子進度 + 課程清單
+   ===================================================================== */
+.section { margin-bottom: var(--sp-5); }
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.card__head {
+  display: flex; align-items: center; gap: var(--sp-4);
+  width: 100%; text-align: left;
+  padding: var(--sp-4) var(--sp-5);
+  transition: background var(--dur-fast) ease;
+}
+.card__head:hover { background: var(--surface-2); }
+.card__chevron { color: var(--ink-3); transition: transform var(--dur-base) var(--ease-out); }
+.card[data-open="true"] .card__chevron { transform: rotate(180deg); }
+.card__titles { flex: 1; min-width: 0; }
+.card__title { font-size: var(--fs-h3); font-family: 'Noto Serif TC', Georgia, serif; font-weight: 600;
+  display: flex; align-items: center; gap: var(--sp-2); }
+.card__sub { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 2px; }
+
+/* 分類右側：子進度讀數 + 迷你儀表 */
+.card__progress { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2);
+  min-width: 132px; }
+.card__count { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+.card__count span { color: var(--ink-3); font-weight: 400; }
+.sub-meter { width: 132px; height: 6px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
+.sub-meter__fill { height: 100%; width: 0%; border-radius: inherit; background: var(--accent); transform-origin: left; }
+.card[data-met="true"] .sub-meter__fill { background: var(--go); }
+
+/* 展開內容（高度由 JS 控制，預設可見以防 JS 失敗） */
+.card__body { padding: 0 var(--sp-5); overflow: hidden; }
+.card__body-inner { padding-bottom: var(--sp-4); padding-top: var(--sp-1); }
+.card__note { font-size: var(--fs-sm); color: var(--ink-2); max-width: var(--measure);
+  padding: var(--sp-3) 0; border-top: 1px solid var(--line); }
+
+/* =====================================================================
+   CourseRow：勾選項（checkbox + 名稱 + 代碼 + 學分 + 狀態）
+   ===================================================================== */
+.course-list { display: flex; flex-direction: column; }
+.course-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease;
+}
+.course-row:hover { background: var(--surface-2); }
+.course-row + .course-row { border-top: 1px solid var(--line); border-radius: 0; }
+
+/* 自訂 checkbox（真 input，鍵盤可用） */
+.check { position: relative; flex: none; width: 22px; height: 22px; }
+.check input { position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0; }
+.check__box { width: 22px; height: 22px; border-radius: 6px; border: 1.75px solid var(--line-2);
+  background: var(--surface); display: grid; place-items: center;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out); }
+.check__box .icon { width: 15px; height: 15px; stroke: var(--on-accent); stroke-width: 2.5;
+  /* 打勾線條由 JS strokeDashoffset 動畫 */ }
+.check input:checked + .check__box { background: var(--go); border-color: var(--go); }
+.check input:focus-visible + .check__box { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check input:hover + .check__box { border-color: var(--ink-3); }
+
+.course-row__main { flex: 1; min-width: 0; }
+.course-row__name { font-size: var(--fs-body); }
+.course-row__code { font-size: var(--fs-xs); color: var(--ink-3); letter-spacing: 0.02em; }
+.course-row__cr { font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.course-row__cr b { color: var(--ink); font-weight: 600; }
+.course-row[data-checked="true"] .course-row__name { color: var(--ink); }
+.course-row[data-checked="false"] .course-row__name { color: var(--ink-2); }
+
+/* =====================================================================
+   Badge：狀態徽章（一致藥丸 + 語意色 + 繪製圓點，非 emoji）
+   ===================================================================== */
+.badge {
+  display: inline-flex; align-items: center; gap: 0.4em;
+  font-size: var(--fs-xs); font-weight: 600; line-height: 1;
+  padding: 0.35em 0.6em; border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.badge--go   { color: var(--go-strong); background: var(--go-tint); }
+.badge--warn { color: var(--warn);      background: var(--warn-tint); }
+.badge--miss { color: var(--miss);      background: var(--miss-tint); }
+.badge--info { color: var(--accent);    background: var(--accent-tint); }
+.badge--offset { color: var(--accent); background: var(--accent-tint); }
+
+/* =====================================================================
+   Segmented control：主修二選一
+   ===================================================================== */
+.segmented { display: inline-flex; padding: 4px; gap: 4px;
+  background: var(--surface-2); border-radius: var(--r-md); }
+.segmented__btn {
+  padding: var(--sp-2) var(--sp-4); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2);
+  transition: color var(--dur-fast) ease, background var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.segmented__btn[aria-pressed="true"] { background: var(--surface); color: var(--accent-strong);
+  box-shadow: var(--shadow-sm); }
+.segmented__btn:hover[aria-pressed="false"] { color: var(--ink); }
+
+/* Switch：折抵開關 */
+.switch { display: inline-flex; align-items: center; gap: var(--sp-3); cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch__track { width: 40px; height: 24px; border-radius: var(--r-pill); background: var(--line-2);
+  position: relative; transition: background var(--dur-base) var(--ease-out); flex: none; }
+.switch__thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--surface); box-shadow: var(--shadow-sm); transition: transform var(--dur-base) var(--ease-out); }
+.switch input:checked + .switch__track { background: var(--accent); }
+.switch input:checked + .switch__track .switch__thumb { transform: translateX(16px); }
+.switch input:focus-visible + .switch__track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 折抵設定列 */
+.offset-row { display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-3) 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.offset-row .switch__label { color: var(--ink); font-weight: 600; }
+.offset-row .offset-note { display: block; color: var(--ink-3); font-size: var(--fs-xs); margin-top: 2px; }
+
+/* 主修選擇列 */
+.major-controls { display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--sp-4); padding-bottom: var(--sp-3); }
+
+/* =====================================================================
+   Credits input：學分數輸入（校定必修 / 自由選修）
+   ===================================================================== */
+.credit-input { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) 0; }
+.credit-input label { font-size: var(--fs-sm); color: var(--ink); font-weight: 600; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--line-2);
+  border-radius: var(--r-sm); overflow: hidden; background: var(--surface); }
+.stepper button { width: 36px; height: 36px; display: grid; place-items: center; color: var(--ink-2);
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease; }
+.stepper button:hover { background: var(--surface-2); color: var(--ink); }
+.stepper input { width: 56px; height: 36px; text-align: center; border: none; border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums; background: var(--surface); }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.stepper input { -moz-appearance: textfield; }
+.credit-hints { font-size: var(--fs-xs); color: var(--ink-3); margin-top: var(--sp-2); line-height: 1.7; }
+.credit-hints ul { padding-left: 1.1em; margin-top: var(--sp-1); }
+
+/* =====================================================================
+   Thresholds：畢業門檻檢定（通過 / 未過）
+   ===================================================================== */
+.threshold-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-2); }
+.threshold {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3); border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+.threshold[data-pass="true"] { border-color: color-mix(in srgb, var(--go) 40%, var(--line)); background: var(--go-tint); }
+.threshold__label { flex: 1; font-size: var(--fs-sm); font-weight: 600; }
+.threshold__note { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 400; margin-top: 1px; }
+
+/* =====================================================================
+   Buttons
+   ===================================================================== */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--r-sm);
+  font-size: var(--fs-sm); font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn--primary { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-sm); }
+.btn--primary:hover { background: var(--accent-strong); box-shadow: var(--shadow-md); }
+.btn--ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line-2); }
+.btn--ghost:hover { background: var(--surface-2); border-color: var(--ink-3); }
+.btn--quiet { color: var(--ink-2); padding: var(--sp-2) var(--sp-3); }
+.btn--quiet:hover { color: var(--ink); background: var(--surface-2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn .icon { width: 1.1em; height: 1.1em; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; margin-bottom: var(--sp-5); }
+.toolbar__spacer { flex: 1; }
+
+/* =====================================================================
+   ImportPanel：貼上成績單自動勾選
+   ===================================================================== */
+.import { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+  box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: var(--sp-5); }
+.import__head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5);
+  width: 100%; text-align: left; transition: background var(--dur-fast) ease; }
+.import__head:hover { background: var(--surface-2); }
+.import__head .icon { color: var(--accent); }
+.import__head h2 { font-size: var(--fs-h3); }
+.import__head p { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 1px; }
+.import__body { padding: 0 var(--sp-5); }
+.import__body-inner { padding-bottom: var(--sp-5); }
+.import textarea { width: 100%; min-height: 130px; resize: vertical;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--sp-3);
+  font-size: var(--fs-sm); line-height: 1.6; background: var(--paper);
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.import textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.import__actions { display: flex; gap: var(--sp-3); align-items: center; margin-top: var(--sp-3); flex-wrap: wrap; }
+.import__result { font-size: var(--fs-sm); }
+.import__result.is-ok { color: var(--go-strong); }
+.import__unmatched { margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--ink-2);
+  background: var(--warn-tint); border-radius: var(--r-sm); padding: var(--sp-3); line-height: 1.7; }
+.import__unmatched b { color: var(--warn); }
+
+/* =====================================================================
+   Footer
+   ===================================================================== */
+.foot { max-width: var(--container); margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-8);
+  border-top: 1px solid var(--line); color: var(--ink-3); font-size: var(--fs-xs); line-height: 1.8; }
+.foot strong { color: var(--ink-2); }
+.foot a { color: var(--accent); }
+
+/* section 標題 */
+.section-title { font-size: var(--fs-sm); font-weight: 700; color: var(--ink-3);
+  letter-spacing: 0.06em; text-transform: none; margin: var(--sp-6) 0 var(--sp-3); }
+
+/* =====================================================================
+   Toast
+   ===================================================================== */
+.toast-wrap { position: fixed; left: 50%; bottom: var(--sp-6); transform: translateX(-50%);
+  z-index: 50; display: flex; flex-direction: column; gap: var(--sp-2); align-items: center;
+  pointer-events: none; }
+.toast { display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: var(--ink); color: var(--paper); padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-pill); box-shadow: var(--shadow-lg); font-size: var(--fs-sm); font-weight: 500; }
+.toast .icon { width: 1.05rem; height: 1.05rem; }
+.toast--go .icon { color: #7FD3A8; }
+
+/* =====================================================================
+   Responsive
+   ===================================================================== */
+@media (max-width: 640px) {
+  .page { padding: var(--sp-5) var(--sp-4) var(--sp-8); }
+  .appbar__inner { padding: var(--sp-3) var(--sp-4); }
+  .appbar__title { display: none; }
+  .card__progress { min-width: 96px; }
+  .sub-meter { width: 96px; }
+  .verdict { padding: var(--sp-5); }
+  .card__head { padding: var(--sp-4); gap: var(--sp-3); }
+  .card__body { padding: 0 var(--sp-4); }
+}
+
+/* 尊重減少動態偏好：全站過場趨近瞬間（GSAP 端另有 matchMedia 處理） */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>資傳系畢業審查工具 · 112 課綱</title>
+<meta name="description" content="亞洲大學資訊傳播學系 112 課綱畢業學分自我檢核工具。勾選已修課程，即時試算距離畢業還差多少學分。資料只存在你的瀏覽器，不會上傳。" />
+<meta name="color-scheme" content="light" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ===== Icon system：一致線寬 SVG，全站以 <use> 取用（非 emoji） ===== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9.5 12 15.5 18 9.5"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="M2.5 9 12 4.5 21.5 9 12 13.5 2.5 9Z"/><path d="M6.5 11v4.2c0 1.3 2.5 2.8 5.5 2.8s5.5-1.5 5.5-2.8V11"/><path d="M21.5 9v4.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4L12 4Z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8v.1"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.8 4.5"/><path d="M20 5v6h-6"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8V3.5h10V8"/><path d="M7 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M7 14h10v6.5H7V14Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 15.5h6"/></symbol>
+</svg>
+
+<!-- ===== AppBar：sticky，右側即時畢業小結 ===== -->
+<header class="appbar">
+  <div class="appbar__inner">
+    <span class="appbar__mark"><svg class="icon"><use href="#i-cap"/></svg></span>
+    <span class="appbar__title">資傳系畢業審查 · 112 課綱</span>
+    <span class="appbar__spacer"></span>
+    <div class="appbar__verdict" id="appbar-verdict" aria-live="polite">
+      <div class="appbar__credits"><b class="tnum" id="bar-now">0</b><span>/ 128 學分</span></div>
+      <div class="mini-meter"><div class="mini-meter__fill" id="bar-fill"></div></div>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+
+  <!-- Intro -->
+  <section class="intro">
+    <h1>你離畢業還差多少學分？</h1>
+    <p>勾選你已經修過（及格）的課程，工具會即時幫你算出院核心、系核心、主修學程與通識自由的進度，並給出畢業結論。你也可以直接把成績單貼上來自動勾選。</p>
+    <div class="meta-line">
+      <span><svg class="icon" style="width:1rem;height:1rem"><use href="#i-cap"/></svg> 資訊傳播學系 · 112 學年入學適用</span>
+      <span><svg class="icon" style="width:1rem;height:1rem"><use href="#i-info"/></svg> 資料只存在本機瀏覽器，不會上傳</span>
+    </div>
+  </section>
+
+  <!-- VerdictBanner：畢業結論主場景 -->
+  <section class="verdict" id="verdict" data-state="short" aria-label="畢業結論">
+    <div class="verdict__head">
+      <span class="verdict__label">畢業結論</span>
+      <span class="verdict__state" id="verdict-state">
+        <svg class="icon"><use href="#i-alert"/></svg>
+        <span id="verdict-word">尚在試算</span>
+      </span>
+    </div>
+    <div class="verdict__readout">
+      <span class="verdict__now tnum" id="verdict-now">0</span>
+      <span class="verdict__of tnum">/ 128</span>
+      <span class="verdict__unit">學分</span>
+    </div>
+    <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="128" aria-valuenow="0">
+      <div class="meter__fill" id="verdict-fill"></div>
+      <div class="meter__mark" id="verdict-mark" style="left:100%"></div>
+    </div>
+    <div class="verdict__foot" id="verdict-foot">
+      <span>還差 <b class="tnum" id="verdict-gap">128</b> 學分</span>
+      <span>門檻檢定 <b id="verdict-thresholds">0 / 5</b> 通過</span>
+    </div>
+  </section>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="btn btn--ghost" id="btn-import-toggle">
+      <svg class="icon"><use href="#i-upload"/></svg> 貼上成績單自動勾選
+    </button>
+    <span class="toolbar__spacer"></span>
+    <button class="btn btn--quiet" id="btn-print">
+      <svg class="icon"><use href="#i-print"/></svg> 列印 / 存 PDF
+    </button>
+    <button class="btn btn--quiet" id="btn-reset">
+      <svg class="icon"><use href="#i-refresh"/></svg> 全部清空
+    </button>
+  </div>
+
+  <!-- ImportPanel（預設收合） -->
+  <section class="import" id="import" data-open="false">
+    <button class="import__head" id="import-head" aria-expanded="false" aria-controls="import-body">
+      <svg class="icon"><use href="#i-sheet"/></svg>
+      <div style="flex:1">
+        <h2>貼上成績單自動勾選</h2>
+        <p>從學生資訊系統複製歷年成績，整段貼上即可，比對只在本機進行。</p>
+      </div>
+      <svg class="icon card__chevron"><use href="#i-chevron"/></svg>
+    </button>
+    <div class="import__body" id="import-body">
+      <div class="import__body-inner">
+        <textarea id="import-text" placeholder="把成績單整段貼在這裡（含課程名稱或代碼、學分、成績都可以）&#10;例如：&#10;EP300347 影音製作技術 3 94&#10;紀錄片製作 3 及格"></textarea>
+        <div class="import__actions">
+          <button class="btn btn--primary" id="btn-import-run"><svg class="icon"><use href="#i-check"/></svg> 開始比對勾選</button>
+          <span class="import__result" id="import-result" aria-live="polite"></span>
+        </div>
+        <div class="import__unmatched" id="import-unmatched" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 課程分類（由 app.js 依 CURRICULUM 渲染） -->
+  <div id="sections"></div>
+
+  <!-- 畢業門檻檢定 -->
+  <h2 class="section-title">畢業門檻檢定（不計學分，但沒過不能畢業）</h2>
+  <div class="threshold-grid" id="thresholds"></div>
+
+  <noscript>
+    <p style="margin-top:2rem;color:var(--miss)">這個工具需要開啟 JavaScript 才能計算學分，請開啟後重新整理。</p>
+  </noscript>
+</main>
+
+<footer class="foot">
+  <p><strong>隱私：</strong>你勾選的資料只儲存在這台裝置的瀏覽器（localStorage），不會傳到任何伺服器，關掉分頁也還在。換裝置或清除瀏覽器資料就會消失。</p>
+  <p><strong>免責：</strong>本工具依 112 學年課綱整理，僅供自我檢核參考。<strong>折抵、學程最低門檻、抵免等實際認定，一律以系辦與教務處公告為準。</strong>畢業前請務必與系辦確認。</p>
+  <p style="margin-top:.5rem">為亞洲大學資訊傳播學系同學而做 · 開放源碼，歡迎改進。</p>
+</footer>
+
+<div class="toast-wrap" id="toast-wrap" aria-live="polite" aria-atomic="true"></div>
+
+<!-- GSAP core（動效） -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script src="curriculum.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
