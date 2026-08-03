@@ -135,8 +135,10 @@ svg { display: block; }
 .appbar__credits span { color: var(--ink-2); font-weight: 400; }
 .mini-meter { width: 90px; height: 6px; border-radius: var(--r-pill);
   background: var(--surface-2); overflow: hidden; }
-.mini-meter__fill { height: 100%; width: 0%; border-radius: inherit;
-  background: var(--accent); transform-origin: left; }
+/* 進度以 scaleX 推進（非 width）：只在合成層作業，不觸發 layout。
+   端點圓角由外層 overflow:hidden 遮罩，故 fill 本身不設圓角以免被縮放拉扁。 */
+.mini-meter__fill { height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center; will-change: transform; }
 
 .page { max-width: var(--container); margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-10); }
 
@@ -185,13 +187,11 @@ svg { display: block; }
 /* 主儀表 */
 .meter { height: 12px; border-radius: var(--r-pill); background: var(--surface-2);
   overflow: hidden; position: relative; }
-.meter__fill { height: 100%; width: 0%; border-radius: inherit; background: var(--accent);
-  transform-origin: left; will-change: width; }
+.meter__fill { height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center; will-change: transform;
+  transition: background var(--dur-base) var(--ease-out); }
 .verdict[data-state="go"]   .meter__fill { background: var(--go); }
 .verdict[data-state="hold"] .meter__fill { background: var(--miss); }
-/* 128 門檻刻度線 */
-.meter__mark { position: absolute; top: -3px; bottom: -3px; width: 2px;
-  background: var(--line-2); border-radius: 2px; }
 
 .verdict__foot { margin-top: var(--sp-4); display: flex; flex-wrap: wrap;
   gap: var(--sp-3) var(--sp-5); font-size: var(--fs-sm); color: var(--ink-2); }
@@ -213,7 +213,8 @@ svg { display: block; }
 }
 .card__head:hover { background: var(--surface-2); }
 .card__chevron { color: var(--ink-3); transition: transform var(--dur-base) var(--ease-out); }
-.card[data-open="true"] .card__chevron { transform: rotate(180deg); }
+.card[data-open="true"] .card__chevron,
+.import[data-open="true"] .card__chevron { transform: rotate(180deg); }
 .card__titles { flex: 1; min-width: 0; }
 .card__title { font-size: var(--fs-h3); font-family: 'Noto Serif TC', Georgia, serif; font-weight: 600;
   display: flex; align-items: center; gap: var(--sp-2); }
@@ -225,7 +226,9 @@ svg { display: block; }
 .card__count { font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
 .card__count span { color: var(--ink-3); font-weight: 400; }
 .sub-meter { width: 132px; height: 6px; border-radius: var(--r-pill); background: var(--surface-2); overflow: hidden; }
-.sub-meter__fill { height: 100%; width: 0%; border-radius: inherit; background: var(--accent); transform-origin: left; }
+.sub-meter__fill { height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center; will-change: transform;
+  transition: background var(--dur-base) var(--ease-out); }
 .card[data-met="true"] .sub-meter__fill { background: var(--go); }
 
 /* 展開內容（高度由 JS 控制，預設可見以防 JS 失敗） */
@@ -395,9 +398,58 @@ svg { display: block; }
 .import__actions { display: flex; gap: var(--sp-3); align-items: center; margin-top: var(--sp-3); flex-wrap: wrap; }
 .import__result { font-size: var(--fs-sm); }
 .import__result.is-ok { color: var(--go-strong); }
+/* 比對明細：讓使用者可以核對自動勾選的結果 */
+.import__detail { margin-top: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+.import__list { font-size: var(--fs-xs); line-height: 1.8; color: var(--ink-2);
+  background: var(--go-tint); border-radius: var(--r-sm); padding: var(--sp-3); }
+.import__list b { color: var(--go-strong); }
+.import__list--skip { background: var(--warn-tint); }
+.import__list--skip b { color: var(--warn); }
+.import__hint { display: block; color: var(--ink-3); margin-top: 2px; }
+
 .import__unmatched { margin-top: var(--sp-3); font-size: var(--fs-xs); color: var(--ink-2);
   background: var(--warn-tint); border-radius: var(--r-sm); padding: var(--sp-3); line-height: 1.7; }
 .import__unmatched b { color: var(--warn); }
+
+/* =====================================================================
+   Curriculum panel：換一份課綱（其他系所也能用）
+   ===================================================================== */
+.cur-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); padding-bottom: var(--sp-3); }
+.cur-row label { font-size: var(--fs-sm); font-weight: 600; }
+.cur-row select {
+  min-height: 40px; padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  background: var(--surface); font-size: var(--fs-sm); font-weight: 600; color: var(--ink);
+}
+.cur-info { font-size: var(--fs-xs); color: var(--ink-3); }
+
+.cur-actions { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center;
+  padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); margin-bottom: var(--sp-3); }
+/* label 當按鈕用（包住隱藏的 file input），與 .btn 行為一致 */
+.cur-actions label.btn { cursor: pointer; }
+
+#cur-text { width: 100%; min-height: 160px; resize: vertical;
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--sp-3);
+  font-size: var(--fs-sm); line-height: 1.6; background: var(--paper);
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+#cur-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+.cur-msg { margin-top: var(--sp-3); font-size: var(--fs-xs); line-height: 1.8;
+  border-radius: var(--r-sm); padding: var(--sp-3); }
+.cur-msg.is-ok  { background: var(--go-tint);   color: var(--ink-2); }
+.cur-msg.is-ok b  { color: var(--go-strong); }
+.cur-msg.is-bad { background: var(--miss-tint); color: var(--ink-2); }
+.cur-msg.is-bad b { color: var(--miss); }
+.cur-msg__hint { display: block; color: var(--ink-3); margin-top: 2px; }
+
+.cur-help { margin-top: var(--sp-4); font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.9; }
+.cur-help summary { cursor: pointer; font-weight: 600; color: var(--accent);
+  padding: var(--sp-2) 0; list-style-position: outside; }
+.cur-help summary:hover { color: var(--accent-strong); }
+.cur-help p { margin-top: var(--sp-2); max-width: var(--measure); }
+.cur-help code { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
+  background: var(--surface-2); border-radius: 4px; padding: 0.1em 0.4em; font-size: 0.95em; }
+.cur-help__note { color: var(--ink-3); }
 
 /* =====================================================================
    Footer
@@ -433,6 +485,8 @@ svg { display: block; }
   background: var(--warn-tint); color: var(--warn); }
 .gap-chip b { color: var(--ink); font-weight: 700; }
 .gap-chip--thr  { background: var(--miss-tint); color: var(--miss); }
+.gap-chip--hint { background: var(--accent-tint); color: var(--accent-strong); }
+.gap-chip--hint .icon { width: 1.05rem; height: 1.05rem; }
 .gap-chip--done { background: var(--go-tint); color: var(--go-strong); font-weight: 600; }
 .gap-chip--done .icon { width: 1.05rem; height: 1.05rem; stroke-width: 2.5; }
 
@@ -488,4 +542,43 @@ svg { display: block; }
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* =====================================================================
+   列印 / 存 PDF：印出來是一份可以帶去系辦談的檢核表
+   去掉操作介面，攤平折疊內容，補上勾選符號（列印不套背景色）
+   ===================================================================== */
+@media print {
+  @page { margin: 14mm; }
+  html, body { background: #fff; }
+  body { font-size: 10.5pt; color: #000; }
+
+  /* 只有畫面上才有意義的東西不印 */
+  .appbar, .toolbar, .import, .bulk, .card__chevron, .toast-wrap,
+  .foot p:last-child, .intro .meta-line { display: none !important; }
+
+  /* 折疊內容一律攤開 */
+  .card__body { height: auto !important; overflow: visible !important; display: block !important; }
+  .card, .verdict, .threshold { box-shadow: none; border: 1px solid #999; break-inside: avoid; }
+  .section { break-inside: avoid; margin-bottom: 8pt; }
+
+  /* 進度條在紙上沒有意義，改用文字讀數 */
+  .meter, .sub-meter, .mini-meter { display: none !important; }
+  .verdict__readout { margin-bottom: 0; }
+  .card__progress { min-width: auto; }
+
+  /* 勾選狀態改印符號，不依賴背景色 */
+  .check { width: auto; height: auto; }
+  .check__box { display: none; }
+  .course-row::before, .threshold::before {
+    content: '☐'; font-size: 12pt; line-height: 1; margin-right: 6pt;
+  }
+  .course-row[data-checked="true"]::before, .threshold[data-pass="true"]::before { content: '☑'; }
+  .course-row, .threshold { background: none !important; padding: 2pt 0; }
+  .course-row + .course-row { border-top: 1px dotted #bbb; }
+
+  /* 缺口切片印成純文字清單，省墨也清楚 */
+  .gap-chip { background: none !important; border: 1px solid #999; color: #000 !important; }
+  .gap-chip .icon { display: none; }
+  a[href]::after { content: ''; }
 }

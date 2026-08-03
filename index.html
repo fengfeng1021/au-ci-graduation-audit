@@ -34,11 +34,11 @@
 <header class="appbar">
   <div class="appbar__inner">
     <span class="appbar__mark"><svg class="icon"><use href="#i-cap"/></svg></span>
-    <span class="appbar__title">資傳系畢業審查 · 112 課綱</span>
+    <span class="appbar__title" id="appbar-title">畢業審查</span>
     <span class="appbar__spacer"></span>
     <div class="appbar__verdict" id="appbar-verdict" aria-live="polite">
       <div class="appbar__credits"><b class="tnum" id="bar-now">0</b><span>/ 128 學分</span></div>
-      <div class="mini-meter"><div class="mini-meter__fill" id="bar-fill"></div></div>
+      <div class="mini-meter" aria-hidden="true"><div class="mini-meter__fill" id="bar-fill"></div></div>
     </div>
   </div>
 </header>
@@ -50,7 +50,7 @@
     <h1>你離畢業還差多少學分？</h1>
     <p>勾選你已經修過（及格）的課程，工具會即時幫你算出院核心、系核心、主修學程與通識自由的進度，並給出畢業結論。你也可以直接把成績單貼上來自動勾選。</p>
     <div class="meta-line">
-      <span><svg class="icon" style="width:1rem;height:1rem"><use href="#i-cap"/></svg> 資訊傳播學系 · 112 學年入學適用</span>
+      <span><svg class="icon" style="width:1rem;height:1rem"><use href="#i-cap"/></svg> <span id="intro-meta">資訊傳播學系 · 112 學年入學適用</span></span>
       <span><svg class="icon" style="width:1rem;height:1rem"><use href="#i-info"/></svg> 資料只存在本機瀏覽器，不會上傳</span>
     </div>
   </section>
@@ -69,9 +69,9 @@
       <span class="verdict__of tnum">/ 128</span>
       <span class="verdict__unit">學分</span>
     </div>
-    <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="128" aria-valuenow="0">
+    <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="128" aria-valuenow="0"
+         aria-labelledby="verdict-now">
       <div class="meter__fill" id="verdict-fill"></div>
-      <div class="meter__mark" id="verdict-mark" style="left:100%"></div>
     </div>
     <div class="verdict__foot" id="verdict-foot">
       <span>還差 <b class="tnum" id="verdict-gap">128</b> 學分</span>
@@ -111,6 +111,7 @@
           <button class="btn btn--primary" id="btn-import-run"><svg class="icon"><use href="#i-check"/></svg> 開始比對勾選</button>
           <span class="import__result" id="import-result" aria-live="polite"></span>
         </div>
+        <div class="import__detail" id="import-detail" hidden></div>
         <div class="import__unmatched" id="import-unmatched" hidden></div>
       </div>
     </div>
@@ -120,8 +121,63 @@
   <div id="sections"></div>
 
   <!-- 畢業門檻檢定 -->
-  <h2 class="section-title">畢業門檻檢定（不計學分，但沒過不能畢業）</h2>
+  <h2 class="section-title" id="thresholds-title">畢業門檻檢定（不計學分，但沒過不能畢業）</h2>
   <div class="threshold-grid" id="thresholds"></div>
+
+  <!-- 課綱：切換 / 匯入 / 匯出（讓其他系所也能用同一個工具） -->
+  <section class="import" id="cur-panel" data-open="false">
+    <button class="import__head" id="cur-panel-head" aria-expanded="false" aria-controls="cur-panel-body">
+      <svg class="icon"><use href="#i-sheet"/></svg>
+      <div style="flex:1">
+        <h2>換一份課綱（其他系所 / 其他學年）</h2>
+        <p>本工具的課綱是一份可替換的資料。匯入你們系的課綱，就能直接拿來用。</p>
+      </div>
+      <svg class="icon card__chevron"><use href="#i-chevron"/></svg>
+    </button>
+    <div class="import__body" id="cur-panel-body">
+      <div class="import__body-inner">
+        <div class="cur-row">
+          <label for="cur-select">目前課綱</label>
+          <select id="cur-select"></select>
+          <span class="cur-info" id="cur-info"></span>
+        </div>
+
+        <div class="cur-actions">
+          <label class="btn btn--ghost" for="cur-file">
+            <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱 JSON 檔
+          </label>
+          <input type="file" id="cur-file" accept="application/json,.json" hidden />
+          <button class="btn btn--quiet" id="cur-export">
+            <svg class="icon"><use href="#i-download"/></svg> 匯出目前課綱（當範本改）
+          </button>
+          <button class="btn btn--quiet" id="cur-remove">移除這份自訂課綱</button>
+        </div>
+
+        <textarea id="cur-text" placeholder="在這裡貼上「課綱 JSON」，或貼上「課表文字」再按下方的『由課表文字產生』。&#10;&#10;課表文字格式（每行一項）：&#10;@meta 亞洲大學 | 資訊傳播學系 | 112 學年入學 | 128&#10;@group 院核心 | 9 | checklist&#10;ES300208 基礎程式設計(一) 1&#10;@group 主修學程 | 27 | choice&#10;@option 新媒體傳播內容學程&#10;EP300329 傳播敘事與劇本創作 2&#10;@group 通識 | 30 | credits&#10;@threshold 中文能力檢定"></textarea>
+
+        <div class="import__actions">
+          <button class="btn btn--primary" id="cur-import-json">
+            <svg class="icon"><use href="#i-check"/></svg> 匯入這份 JSON
+          </button>
+          <button class="btn btn--ghost" id="cur-build">由課表文字產生 JSON</button>
+        </div>
+        <div class="cur-msg" id="cur-msg" hidden></div>
+
+        <details class="cur-help">
+          <summary>課表文字怎麼寫？（點開看說明）</summary>
+          <p><b>@meta</b> 學校 | 系所 | 入學學年 | 畢業總學分：一份課綱寫一行。</p>
+          <p><b>@group</b> 分類名稱 | 應修學分 | 類型。類型有三種：<br>
+            <code>checklist</code> 逐門勾選（必修）、<code>credits</code> 直接填學分（通識、自由選修）、<code>choice</code> 學程擇一。</p>
+          <p><b>@option</b> 學程名稱：只用在 <code>choice</code> 分類底下，一個學程一行，後面接該學程的課。</p>
+          <p><b>@threshold</b> 門檻名稱：不計學分但沒過不能畢業的項目（中文、英文、體育…）。</p>
+          <p>課程行寫成 <code>課號 課名 學分</code>，課號可以省略，用空白或 Tab 分隔都可以。
+            各分類的「應修學分」加總必須等於畢業總學分，否則會提醒你。</p>
+          <p class="cur-help__note">從學校課程規劃表的<b>網頁版</b>直接複製表格通常最順；PDF 版有時候中文複製不出來，
+            那種情況請改用網頁版，或自己照上面格式打。</p>
+        </details>
+      </div>
+    </div>
+  </section>
 
   <noscript>
     <p style="margin-top:2rem;color:var(--miss)">這個工具需要開啟 JavaScript 才能計算學分，請開啟後重新整理。</p>
