@@ -171,6 +171,27 @@
     return el('div', { class: 'course-list' }, courses.map((c) => courseRow(listId, c)));
   }
 
+  /* 一鍵全選 / 清空一個清單（省下逐一點擊，行為與動效與單列一致） */
+  function bulkToggle(listId, courses) {
+    const setAll = (on) => {
+      courses.forEach((c) => {
+        const k = ckey(listId, c);
+        if (on) state.checked[k] = true; else delete state.checked[k];
+      });
+      syncChecks(); save(); update();
+    };
+    return el('div', { class: 'bulk' },
+      el('button', { class: 'bulk__btn', type: 'button', onClick: () => setAll(true) },
+        icon('i-check'), '全部勾選'),
+      el('button', { class: 'bulk__btn bulk__btn--quiet', type: 'button', onClick: () => setAll(false) },
+        '清空本區'));
+  }
+
+  /* 全必修類清單：一鍵列 + 課程列 */
+  function checklistBody(listId, courses) {
+    return el('div', {}, bulkToggle(listId, courses), courseList(listId, courses));
+  }
+
   function stepper(get, set, min, max) {
     const input = el('input', { type: 'number', min: String(min), max: String(max), value: String(get()) });
     const commit = () => { set(clamp(min, max, parseInt(input.value, 10) || 0)); };
@@ -189,7 +210,8 @@
       class: 'card__head', type: 'button', 'aria-expanded': 'true', 'aria-controls': id + '-body',
     },
       el('div', { class: 'card__titles' },
-        el('div', { class: 'card__title' }, title),
+        el('div', { class: 'card__title' }, title,
+          el('span', { class: 'card__done' }, icon('i-check'), '達標')),
         el('div', { class: 'card__sub' }, note)),
       el('div', { class: 'card__progress' }, countEl, el('div', { class: 'sub-meter' }, meterEl)),
       chevron);
@@ -242,32 +264,37 @@
     mount.innerHTML = '';
     const cfg = C.major;
     const opt = cfg.options[state.major];
-    mount.append(courseList('major-' + opt.id, opt.courses));
+    const otherKey = state.major === 'newmedia' ? 'smart' : 'newmedia';
+    const other = cfg.options[otherKey];
 
-    // 只有「新媒體為主修」時，才顯示可折抵的智慧學程課程
-    if (state.major === 'newmedia') {
-      const sw = el('input', { type: 'checkbox' });
-      sw.checked = !!state.offset;
-      sw.addEventListener('change', () => {
-        state.offset = sw.checked;
-        offsetList.hidden = !sw.checked;
-        save(); update();
-      });
-      const offsetRow = el('label', { class: 'offset-row switch' },
-        el('span', { class: 'switch' }, sw,
-          el('span', { class: 'switch__track' }, el('span', { class: 'switch__thumb' }))),
-        el('span', {},
-          el('span', { class: 'switch__label' }, cfg.offset.label),
-          el('span', { class: 'offset-note' }, cfg.offset.note)));
+    // 主修學程本身的課
+    mount.append(
+      bulkToggle('major-' + opt.id, opt.courses),
+      courseList('major-' + opt.id, opt.courses));
 
-      const offsetList = el('div', {},
-        el('div', { class: 'card__note', style: 'border-top:none;padding-bottom:.25rem' },
-          '以下為智慧學程課程，勾選你修過的即可折抵新媒體學程學分：'),
-        courseList('major-smart', cfg.options.smart.courses));
-      offsetList.hidden = !state.offset;
+    // 折抵：另一個學程的課可計入主修（雙向，方向跟著主修走）
+    const sw = el('input', { type: 'checkbox' });
+    sw.checked = !!state.offset;
+    sw.addEventListener('change', () => {
+      state.offset = sw.checked;
+      offsetList.hidden = !sw.checked;
+      save(); update();
+    });
+    const offsetRow = el('label', { class: 'offset-row switch' },
+      el('span', { class: 'switch' }, sw,
+        el('span', { class: 'switch__track' }, el('span', { class: 'switch__thumb' }))),
+      el('span', {},
+        el('span', { class: 'switch__label' }, '用「' + other.label + '」的課折抵主修'),
+        el('span', { class: 'offset-note' }, cfg.offset.note)));
 
-      mount.append(el('div', { class: 'card__note' }, offsetRow), offsetList);
-    }
+    const offsetList = el('div', {},
+      el('div', { class: 'card__note', style: 'border-top:none;padding-bottom:.25rem' },
+        '以下是「' + other.label + '」的課程，勾選你修過的即可折抵主修學分：'),
+      bulkToggle('major-' + other.id, other.courses),
+      courseList('major-' + other.id, other.courses));
+    offsetList.hidden = !state.offset;
+
+    mount.append(el('div', { class: 'card__note' }, offsetRow), offsetList);
   }
 
   /* 學分數輸入卡（校定必修 / 自由選修） */
@@ -310,13 +337,19 @@
   function compute() {
     const collegeCr = sumChecked('college-core', C.collegeCore.courses);
     const deptCr = sumChecked('dept-core', C.deptCore.courses);
+    // 折抵方向跟著主修走：主修之外「另一個學程」的課，可計入主修 27 學分
+    const otherKey = state.major === 'newmedia' ? 'smart' : 'newmedia';
     const majorOpt = C.major.options[state.major];
     const majorMain = sumChecked('major-' + state.major, majorOpt.courses);
-    const offsetActive = state.major === 'newmedia' && state.offset;
-    const offsetCr = offsetActive ? sumChecked('major-smart', C.major.options.smart.courses) : 0;
+    const offsetActive = !!state.offset;
+    const offsetCr = offsetActive
+      ? sumChecked('major-' + otherKey, C.major.options[otherKey].courses) : 0;
     const majorProg = majorMain + offsetCr;
 
-    const courseTotal = collegeCr + deptCr + majorMain + offsetCr;
+    // 計入畢業總分時，主修學程最多採計應修的 27 學分；超修部分請改計入自由選修，
+    // 避免把超修的學程課重複灌進總學分而誤判「可以畢業」。
+    const majorForTotal = Math.min(majorProg, C.major.required);
+    const courseTotal = collegeCr + deptCr + majorForTotal;
     const total = courseTotal + state.general + state.free;
 
     const thrPass = C.thresholds.filter((t) => state.thresholds[t.id]).length;
@@ -348,9 +381,46 @@
     const met = cur >= req;
     countEl.append(el('span', { class: 'tnum', style: met ? 'color:var(--go-strong)' : '' }, String(cur)),
       el('span', { class: 'tnum' }, ' / ' + req + ' 學分'));
+    if (id === 'major' && cur > req) {
+      countEl.append(el('span', { class: 'over-hint' }, '超修 ' + (cur - req) + '，計入自由選修'));
+    }
     animMeter(meterEl, (cur / req) * 100);
     const cardEl = countEl.closest('.card');
     if (cardEl) cardEl.setAttribute('data-met', String(met));
+  }
+
+  /* 分類中文標籤（給「還缺什麼」用） */
+  const CAT_LABEL = {
+    'college-core': '院核心', 'dept-core': '系核心', major: '主修學程',
+    general: '通識', free: '自由選修',
+  };
+  /* 還缺什麼：把未達標分類與未過門檻切成 chip，直接回答「還差什麼」 */
+  function renderBreakdown(r, vstate) {
+    const bd = $('#verdict-breakdown');
+    if (!bd) return;
+    bd.innerHTML = '';
+    if (vstate === 'go') {
+      bd.append(el('span', { class: 'gap-chip gap-chip--done' }, icon('i-check'), '所有分類與門檻都已達標'));
+      return;
+    }
+    const chips = [];
+    Object.keys(CAT_LABEL).forEach((id) => {
+      const c = r.cats[id];
+      if (c && c.cur < c.req) chips.push(
+        el('span', { class: 'gap-chip' },
+          el('span', {}, CAT_LABEL[id]),
+          el('b', { class: 'tnum' }, '缺 ' + (c.req - c.cur))));
+    });
+    C.thresholds.forEach((t) => {
+      if (!state.thresholds[t.id]) chips.push(
+        el('span', { class: 'gap-chip gap-chip--thr' },
+          el('span', {}, t.label), el('b', {}, '未過')));
+    });
+    if (!chips.length) {
+      bd.append(el('span', { class: 'gap-chip gap-chip--done' }, icon('i-check'), '分類與門檻皆達標，確認總學分即可'));
+    } else {
+      chips.forEach((n) => bd.append(n));
+    }
   }
 
   function update() {
@@ -382,6 +452,7 @@
     animMeter($('#verdict-fill'), (r.total / TOTAL) * 100);
     $('#verdict-gap').textContent = String(Math.max(0, TOTAL - r.total));
     $('#verdict-thresholds').textContent = r.thrPass + ' / ' + C.thresholds.length;
+    renderBreakdown(r, vstate);
 
     const meterBox = $('#verdict .meter');
     if (meterBox) meterBox.setAttribute('aria-valuenow', String(Math.min(r.total, TOTAL)));
@@ -525,9 +596,9 @@
     const mount = $('#sections');
     mount.append(
       card(C.collegeCore.id, C.collegeCore.title, C.collegeCore.note,
-        courseList('college-core', C.collegeCore.courses)),
+        checklistBody('college-core', C.collegeCore.courses)),
       card(C.deptCore.id, C.deptCore.title, C.deptCore.note,
-        courseList('dept-core', C.deptCore.courses)),
+        checklistBody('dept-core', C.deptCore.courses)),
       majorCard(),
       creditsCard(C.general, 'general'),
       creditsCard(C.free, 'free'));
@@ -574,6 +645,19 @@
       try { localStorage.removeItem(STORE_KEY); } catch (e) {}
       location.reload();
     });
+
+    // 頁首即時小結：點一下回到「畢業結論」（長頁面隨時看得到、回得去）
+    const barV = $('#appbar-verdict');
+    if (barV) {
+      barV.setAttribute('role', 'button');
+      barV.setAttribute('tabindex', '0');
+      barV.setAttribute('title', '回到畢業結論');
+      const goTop = () => $('#verdict').scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', block: 'start' });
+      barV.addEventListener('click', goTop);
+      barV.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
+      });
+    }
 
     update();
     // 首次若已達標，不要放慶祝（避免每次開啟都跳）；用 update 後的 wasGo 已設定
