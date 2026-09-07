@@ -359,6 +359,22 @@ svg { display: block; }
 .credit-hints { font-size: var(--fs-xs); color: var(--ink-3); margin-top: var(--sp-2); line-height: 1.7; }
 .credit-hints ul { padding-left: 1.1em; margin-top: var(--sp-1); }
 
+/* 學分卡逐門明細：匯入的通識 / 自由選修每一門都列出來，不藏在加總數字裡 */
+.credit-breakdown { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.credit-breakdown:empty { display: none; }
+.credit-breakdown__title { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); margin-bottom: var(--sp-2); }
+.credit-breakdown__list { display: flex; flex-direction: column; border: 1px solid var(--line);
+  border-radius: var(--r-sm); overflow: hidden; }
+.credit-course { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3); background: var(--surface); font-size: var(--fs-sm); }
+.credit-course + .credit-course { border-top: 1px solid var(--line); }
+.credit-course__name { font-weight: 600; color: var(--ink); }
+.credit-course__meta { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.credit-diff { margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--warn);
+  background: var(--warn-tint); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); line-height: 1.6; }
+.credit-empty { font-size: var(--fs-xs); color: var(--ink-3); background: var(--surface-2);
+  border-radius: var(--r-sm); padding: var(--sp-3); line-height: 1.7; }
+
 /* =====================================================================
    Thresholds：畢業門檻檢定（通過 / 未過）
    ===================================================================== */

@@ -502,8 +502,9 @@
     mount.append(el('div', { class: 'card__note' }, offsetRow), offsetList);
   }
 
-  /* 學分數輸入卡 */
+  /* 學分數輸入卡：上方是學分輸入（試算依據），下方是成績單逐門明細（全部列出、沒有隱藏） */
   function creditsCard(g) {
+    const breakdownMount = el('div', { class: 'credit-breakdown', 'data-breakdown': g.id });
     const body = el('div', {},
       el('div', { class: 'credit-input' },
         el('label', { for: g.id + '-num' }, '已通過學分'),
@@ -512,8 +513,75 @@
       g.hints
         ? el('div', { class: 'credit-hints' }, '通常包含：',
             el('ul', {}, g.hints.map((h) => el('li', {}, h))))
-        : null);
+        : null,
+      breakdownMount);
     return card(g.id, g.title, g.note, body);
+  }
+
+  /* 已匯入及格科目中、未對應到任何必修/學程清單者，依通識規則拆成兩類。
+     必修/學程已在各自卡片逐門顯示，這裡只列「藏在學分數字裡」的那些。 */
+  function unmatchedPassedByCategory() {
+    const idx = allCourses();
+    const generalList = [], freeList = [];
+    (state.passedCourses || []).forEach((c) => {
+      if (!c || !c.name) return;
+      const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
+      if (matchCourse(nline, idx)) return;
+      if (isGeneralCourseRecord(c)) generalList.push(c); else freeList.push(c);
+    });
+    return { generalList, freeList };
+  }
+
+  function isCreditBreakdownGroup(g, kind) {
+    if (!g) return false;
+    if (kind === 'general') return g.id === 'general' || /通識|校定/.test(g.title || '');
+    return g.id === 'free' || /自由/.test(g.title || '');
+  }
+
+  /* 重繪所有學分卡的逐門明細（純顯示，不含輸入框，每次 update 都可安全重建） */
+  function refreshCreditBreakdowns() {
+    const mounts = $$('[data-breakdown]');
+    if (!mounts.length) return;
+    const { generalList, freeList } = unmatchedPassedByCategory();
+    const hasImport = (state.passedCourses || []).length > 0;
+    mounts.forEach((mount) => {
+      const gid = mount.getAttribute('data-breakdown');
+      const g = GROUPS.find((x) => x.id === gid);
+      mount.innerHTML = '';
+      if (!g || g.kind !== 'credits') return;
+      const isGen = isCreditBreakdownGroup(g, 'general');
+      const isFree = isCreditBreakdownGroup(g, 'free');
+      if (!isGen && !isFree) return;
+      const list = isGen ? generalList : freeList;
+      const entered = state.credits[gid] || 0;
+      const sum = Math.round(list.reduce((t, c) => t + (c.cr || 0), 0));
+
+      if (!hasImport) {
+        mount.append(el('div', { class: 'credit-empty' },
+          '尚未匯入成績單。用上方「選擇成績單 Excel」匯入後，這裡會逐門列出每一門課（名稱、學分、成績、學期）；也可以直接在上方手動填入已通過學分。'));
+        return;
+      }
+      if (!list.length) {
+        mount.append(el('div', { class: 'credit-empty' },
+          '匯入的成績中沒有歸到這一類的課程' + (entered ? '（上方 ' + entered + ' 學分為手動填入或舊資料，請自行核對）' : '') + '。'));
+        return;
+      }
+      mount.append(el('div', { class: 'credit-breakdown__title tnum' },
+        '逐門明細（共 ' + list.length + ' 門，加總 ' + sum + ' 學分）：'));
+      const box = el('div', { class: 'credit-breakdown__list' });
+      list.forEach((c) => {
+        const meta = [c.code || '', (c.cr != null ? c.cr + ' 學分' : ''), c.score || '', c.sem ? (c.sem + ' 學期') : '']
+          .filter((x) => x).join(' · ');
+        box.append(el('div', { class: 'credit-course' },
+          el('span', { class: 'credit-course__name' }, c.name),
+          meta ? el('span', { class: 'credit-course__meta tnum' }, meta) : null));
+      });
+      mount.append(box);
+      if (entered !== sum) {
+        mount.append(el('div', { class: 'credit-diff tnum' },
+          '上方填 ' + entered + ' 學分，與明細加總 ' + sum + ' 不同（曾手動調整或含舊資料，以上方數字為試算依據）。'));
+      }
+    });
   }
 
   function groupCard(g) {
@@ -701,6 +769,7 @@
     wasGo = vstate === 'go';
 
     renderRoadmap();
+    refreshCreditBreakdowns();
   }
 
   /* =====================================================================
@@ -1179,6 +1248,16 @@
     .replace(/[　 ]/g, ' ');
   const norm = (s) => toHalf(s).replace(/\s+/g, '').toLowerCase();
 
+  /* 成績單一筆是否屬於「通識共同 / 校定必修」（否則歸自由選修）。
+     Excel 匯入、跨課綱比對、學分明細三處共用，規則必須一致。 */
+  function isGeneralCourseRecord(c) {
+    if (!c) return false;
+    if (c.opt && c.opt.includes('通識')) return true;
+    if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
+    const n = norm(c.name);
+    return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
+  }
+
   /* =====================================================================
      貼上成績單自動勾選（純本機比對）
      ===================================================================== */
@@ -1517,13 +1596,8 @@
       }
     });
 
-    // 區分通識共同與自由選修
-    const isGeneralCourse = (c) => {
-      if (c.opt && c.opt.includes('通識')) return true;
-      if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
-      const n = norm(c.name);
-      return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
-    };
+    // 區分通識共同與自由選修（規則見共用 isGeneralCourseRecord）
+    const isGeneralCourse = isGeneralCourseRecord;
 
     let generalCr = 0;
     const generalList = [];
@@ -2638,13 +2712,8 @@
         }
       });
 
-      // 區分通識共同與自由選修
-      const isGeneralCourse = (c) => {
-        if (c.opt && c.opt.includes('通識')) return true;
-        if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
-        const n = norm(c.name);
-        return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
-      };
+      // 區分通識共同與自由選修（規則見共用 isGeneralCourseRecord）
+      const isGeneralCourse = isGeneralCourseRecord;
       let generalCr = 0, freeCr = 0;
       state.passedCourses.forEach((c) => {
         const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
