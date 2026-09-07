@@ -83,38 +83,92 @@
   <!-- Toolbar -->
   <div class="toolbar">
     <button class="btn btn--ghost" id="btn-import-toggle">
-      <svg class="icon"><use href="#i-upload"/></svg> 貼上成績單自動勾選
+      <svg class="icon"><use href="#i-sheet"/></svg> 匯入成績單 (Excel / 文字)
+    </button>
+    <button class="btn btn--ghost" id="btn-roadmap-toggle">
+      <svg class="icon"><use href="#i-check"/></svg> 4 年 8 學期建議修課
     </button>
     <span class="toolbar__spacer"></span>
     <button class="btn btn--quiet" id="btn-print">
-      <svg class="icon"><use href="#i-print"/></svg> 列印 / 存 PDF
+      <svg class="icon"><use href="#i-print"/></svg> 列印 / 存成 PDF
     </button>
-    <button class="btn btn--quiet" id="btn-reset">
-      <svg class="icon"><use href="#i-refresh"/></svg> 全部清空
-    </button>
+    <button class="btn btn--quiet" id="btn-reset">清空重填</button>
   </div>
 
-  <!-- ImportPanel（預設收合） -->
+  <!-- 匯入成績單面板（Excel / 文字） -->
   <section class="import" id="import" data-open="false">
     <button class="import__head" id="import-head" aria-expanded="false" aria-controls="import-body">
       <svg class="icon"><use href="#i-sheet"/></svg>
       <div style="flex:1">
-        <h2>貼上成績單自動勾選</h2>
-        <p>從學生資訊系統複製歷年成績，整段貼上即可，比對只在本機進行。</p>
+        <h2>匯入成績單自動勾選與試算</h2>
+        <p>支援直接拖曳 Excel（.xlsx）成績單，或貼上成績文字，純本機解析不外傳。</p>
       </div>
       <svg class="icon card__chevron"><use href="#i-chevron"/></svg>
     </button>
     <div class="import__body" id="import-body">
       <div class="import__body-inner">
-        <textarea id="import-text" placeholder="把成績單整段貼在這裡（含課程名稱或代碼、學分、成績都可以）&#10;例如：&#10;EP300347 影音製作技術 3 94&#10;紀錄片製作 3 及格"></textarea>
-        <div class="import__actions">
-          <button class="btn btn--primary" id="btn-import-run"><svg class="icon"><use href="#i-check"/></svg> 開始比對勾選</button>
+        <!-- Excel 拖曳上傳區 -->
+        <div class="dropzone" id="excel-dropzone" tabindex="0" role="button" aria-label="上傳成績單 Excel 檔案">
+          <input type="file" id="excel-file-input" accept=".xlsx, .xls, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" hidden />
+          <div class="dropzone__icon">
+            <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
+          </div>
+          <div class="dropzone__text">
+            <b>點此選擇或直接將成績單 Excel（.xlsx）拖曳至此</b>
+            <span>支援校務系統匯出的「歷年成績列印」檔（自動跨學期解析、通識與自由選修自動加總）</span>
+          </div>
+        </div>
+
+        <div class="import__result-bar" id="import-result-bar" hidden>
+          <div class="student-badge" id="student-badge"></div>
           <span class="import__result" id="import-result" aria-live="polite"></span>
         </div>
+
         <div class="import__detail" id="import-detail" hidden></div>
         <div class="import__unmatched" id="import-unmatched" hidden></div>
+
+        <!-- 摺疊的純文字貼上替代方案 -->
+        <details class="import-paste-toggle">
+          <summary>或是貼上成績單文字</summary>
+          <div class="import-paste-box">
+            <textarea id="import-text" placeholder="若無 Excel 檔，也可以把成績單整段複製貼在這裡（含課程名稱或代碼、學分、成績皆可）&#10;例如：&#10;EP300347 影音製作技術 3 94&#10;紀錄片製作 3 及格"></textarea>
+            <div class="import__actions">
+              <button class="btn btn--primary" id="btn-import-run"><svg class="icon"><use href="#i-check"/></svg> 由文字比對勾選</button>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
+  </section>
+
+  <!-- 4 年 8 學期建議修課規劃 -->
+  <section class="roadmap-section" id="roadmap-section">
+    <div class="roadmap-head">
+      <div class="roadmap-head__title">
+        <svg class="icon" style="width:1.6rem;height:1.6rem;color:var(--accent)"><use href="#i-sheet"/></svg>
+        <div>
+          <h2>4 年 8 學期建議修課規劃</h2>
+          <p>依課綱完整時程排定，8 個學期剛好修滿 128 學分畢業。自動比對成績單標記修畢狀態與跨學程抵免。</p>
+        </div>
+      </div>
+      <div class="roadmap-head__badge" id="roadmap-summary-badge"></div>
+    </div>
+
+    <!-- 工具列：學程切換 + 抵免門數設定 -->
+    <div class="roadmap-toolbar">
+      <div class="roadmap-control-group">
+        <span class="roadmap-control-label">目前規劃學程：</span>
+        <div class="segmented" id="roadmap-track-seg" role="group" aria-label="選擇建議課表學程"></div>
+      </div>
+      <div class="roadmap-control-group">
+        <span class="roadmap-control-label">跨學程抵免門數：</span>
+        <div class="offset-btn-group" id="roadmap-offset-group" role="group" aria-label="設定跨學程抵免門數"></div>
+        <span class="offset-tip" id="roadmap-offset-tip"></span>
+      </div>
+    </div>
+
+    <!-- 8 個學期卡片容器 -->
+    <div class="roadmap-grid" id="roadmap-grid"></div>
   </section>
 
   <!-- 課程分類（由 app.js 依 CURRICULUM 渲染） -->
@@ -129,8 +183,8 @@
     <button class="import__head" id="cur-panel-head" aria-expanded="false" aria-controls="cur-panel-body">
       <svg class="icon"><use href="#i-sheet"/></svg>
       <div style="flex:1">
-        <h2>換一份課綱（其他系所 / 其他學年）</h2>
-        <p>本工具的課綱是一份可替換的資料。匯入你們系的課綱，就能直接拿來用。</p>
+        <h2>換一份課綱（支援 PDF / ODT / JSON）</h2>
+        <p>本工具課綱可隨時替換。支援直接拖入學校匯出的 PDF 或 ODT 課綱，自動解析套用。</p>
       </div>
       <svg class="icon card__chevron"><use href="#i-chevron"/></svg>
     </button>
@@ -142,11 +196,19 @@
           <span class="cur-info" id="cur-info"></span>
         </div>
 
+        <!-- 課綱拖曳上傳區 (支援 PDF / ODT / JSON) -->
+        <div class="dropzone" id="cur-dropzone" tabindex="0" role="button" aria-label="上傳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
+          <input type="file" id="cur-file" accept=".pdf,.odt,.json,application/pdf,application/vnd.oasis.opendocument.text,application/json" hidden />
+          <div class="dropzone__icon">
+            <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
+          </div>
+          <div class="dropzone__text">
+            <b>點此選擇或直接將課綱檔案（.pdf / .odt / .json）拖曳至此</b>
+            <span>支援學校課規查詢匯出的 PDF 或 ODT 檔，自動解析系所、核心必修、專業學程與學分</span>
+          </div>
+        </div>
+
         <div class="cur-actions">
-          <label class="btn btn--ghost" for="cur-file">
-            <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱 JSON 檔
-          </label>
-          <input type="file" id="cur-file" accept="application/json,.json" hidden />
           <button class="btn btn--quiet" id="cur-export">
             <svg class="icon"><use href="#i-download"/></svg> 匯出目前課綱（當範本改）
           </button>
@@ -194,6 +256,34 @@
 
 <!-- GSAP core（動效） -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<!-- SheetJS（Excel 成績單解析）：本地離線優先，加 CDN 備援 -->
+<script src="xlsx.full.min.js"></script>
+<script>
+  if (typeof XLSX === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
+  }
+</script>
+<!-- JSZip（ODT 課綱解析）：本地離線優先，加 CDN 備援 -->
+<script src="jszip.min.js"></script>
+<script>
+  if (typeof JSZip === 'undefined') {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"><\/script>');
+  }
+</script>
+<!-- PDF.js（PDF 課綱解析）：本地離線優先，加 CDN 備援 -->
+<script src="pdf.min.js"></script>
+<script>
+  if (typeof pdfjsLib === 'undefined') {
+    document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"><\/script>');
+  }
+</script>
+<script>
+  if (window.pdfjsLib) {
+    try {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
+    } catch (e) {}
+  }
+</script>
 <script src="curriculum.js"></script>
 <script src="app.js"></script>
 </body>

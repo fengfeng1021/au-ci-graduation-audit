@@ -378,7 +378,7 @@ svg { display: block; }
 .toolbar__spacer { flex: 1; }
 
 /* =====================================================================
-   ImportPanel：貼上成績單自動勾選
+   ImportPanel：成績單匯入（Excel 拖曳 + 純文字）
    ===================================================================== */
 .import { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
   box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: var(--sp-5); }
@@ -390,19 +390,67 @@ svg { display: block; }
 .import__head p { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 1px; }
 .import__body { padding: 0 var(--sp-5); }
 .import__body-inner { padding-bottom: var(--sp-5); }
-.import textarea { width: 100%; min-height: 130px; resize: vertical;
+
+/* Excel 拖曳區 */
+.dropzone {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  border: 2px dashed var(--line-2); border-radius: var(--r-md);
+  background: var(--paper); cursor: pointer; outline: none;
+  transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.dropzone:hover, .dropzone:focus-visible {
+  border-color: var(--accent); background: var(--surface-2);
+}
+.dropzone.is-dragover {
+  border-color: var(--go-strong); background: var(--go-tint);
+  transform: scale(1.008); border-style: solid;
+}
+.dropzone__icon {
+  width: 3rem; height: 3rem; border-radius: var(--r-pill);
+  background: var(--surface-2); display: flex; align-items: center; justify-content: center;
+  color: var(--accent); flex-shrink: 0; transition: transform var(--dur-fast) ease, background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.dropzone:hover .dropzone__icon, .dropzone.is-dragover .dropzone__icon {
+  transform: translateY(-2px); background: var(--accent); color: #fff;
+}
+.dropzone__text { display: flex; flex-direction: column; gap: 3px; }
+.dropzone__text b { font-size: var(--fs-body); color: var(--ink); }
+.dropzone__text span { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
+
+.import__result-bar {
+  margin-top: var(--sp-4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); background: var(--surface-2); border-radius: var(--r-sm); border: 1px solid var(--line);
+}
+.student-badge {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: var(--accent); color: #fff; padding: 4px 10px;
+  border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600;
+}
+.student-badge .badge-meta { opacity: 0.9; font-weight: 400; }
+
+.import-paste-toggle { margin-top: var(--sp-4); font-size: var(--fs-xs); color: var(--ink-2); }
+.import-paste-toggle summary {
+  cursor: pointer; color: var(--accent); font-weight: 600; padding: var(--sp-1) 0; list-style-position: outside;
+}
+.import-paste-toggle summary:hover { color: var(--accent-strong); }
+.import-paste-box { margin-top: var(--sp-2); }
+
+.import textarea { width: 100%; min-height: 110px; resize: vertical;
   border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: var(--sp-3);
   font-size: var(--fs-sm); line-height: 1.6; background: var(--paper);
   font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
 .import textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 .import__actions { display: flex; gap: var(--sp-3); align-items: center; margin-top: var(--sp-3); flex-wrap: wrap; }
-.import__result { font-size: var(--fs-sm); }
+.import__result { font-size: var(--fs-sm); font-weight: 500; }
 .import__result.is-ok { color: var(--go-strong); }
 /* 比對明細：讓使用者可以核對自動勾選的結果 */
 .import__detail { margin-top: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
 .import__list { font-size: var(--fs-xs); line-height: 1.8; color: var(--ink-2);
   background: var(--go-tint); border-radius: var(--r-sm); padding: var(--sp-3); }
 .import__list b { color: var(--go-strong); }
+.import__list--credits { background: #f0f7ff; }
+.import__list--credits b { color: var(--accent-strong); }
 .import__list--skip { background: var(--warn-tint); }
 .import__list--skip b { color: var(--warn); }
 .import__hint { display: block; color: var(--ink-3); margin-top: 2px; }
@@ -517,6 +565,158 @@ svg { display: block; }
 /* 頁首小結：可點回結論 */
 .appbar__verdict { cursor: pointer; border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); margin: calc(var(--sp-1) * -1) calc(var(--sp-2) * -1); }
 .appbar__verdict:hover .appbar__credits b { color: var(--accent); }
+
+/* =====================================================================
+   4 年 8 學期建議修課規劃（Roadmap）
+   ===================================================================== */
+.roadmap-section {
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface);
+  box-shadow: var(--shadow-sm); padding: var(--sp-5); margin-bottom: var(--sp-6);
+}
+.roadmap-head {
+  display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
+  gap: var(--sp-3); padding-bottom: var(--sp-4); border-bottom: 1px solid var(--line);
+}
+.roadmap-head__title {
+  display: flex; gap: var(--sp-3); align-items: center;
+}
+.roadmap-head__title h2 { font-size: var(--fs-lg); font-weight: 700; color: var(--ink); }
+.roadmap-head__title p { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 2px; }
+
+.roadmap-head__badge {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  padding: 6px 14px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2);
+}
+.roadmap-head__badge b { color: var(--accent); }
+
+.roadmap-toolbar {
+  display: flex; flex-wrap: wrap; gap: var(--sp-4); align-items: center; justify-content: space-between;
+  padding: var(--sp-4) 0; border-bottom: 1px solid var(--line);
+}
+.roadmap-control-group {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+}
+.roadmap-control-label {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2);
+}
+
+.offset-btn-group {
+  display: inline-flex; gap: 3px; background: var(--surface-2); padding: 3px;
+  border-radius: var(--r-pill); border: 1px solid var(--line-2);
+}
+.offset-btn {
+  padding: 4px 12px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600;
+  border: none; background: transparent; color: var(--ink-3); cursor: pointer;
+  transition: all var(--dur-fast) ease;
+}
+.offset-btn:hover { color: var(--ink); }
+.offset-btn.is-active {
+  background: var(--accent); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.offset-tip { font-size: var(--fs-xs); color: var(--ink-3); margin-left: var(--sp-2); }
+
+/* 8 學期網格 */
+.roadmap-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+@media (max-width: 1100px) {
+  .roadmap-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .roadmap-grid { grid-template-columns: 1fr; }
+}
+
+.sem-card {
+  background: var(--paper); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.sem-card:hover { border-color: var(--line-3); box-shadow: var(--shadow-sm); }
+.sem-card.is-all-done {
+  border-color: color-mix(in srgb, var(--go-strong) 40%, var(--line-2));
+  background: color-mix(in srgb, var(--go-tint) 20%, var(--paper));
+}
+
+.sem-card__head {
+  padding: var(--sp-3) var(--sp-4); background: var(--surface-2);
+  border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;
+}
+.sem-card__title { font-size: var(--fs-sm); font-weight: 700; color: var(--ink); }
+.sem-card__cr { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 500; }
+.sem-card__cr b { color: var(--ink-2); }
+.sem-card.is-all-done .sem-card__cr b { color: var(--go-strong); }
+
+.sem-card__progress-bar {
+  height: 4px; background: var(--line-2); position: relative; overflow: hidden;
+}
+.sem-card__progress-fill {
+  height: 100%; background: var(--accent); width: 0%;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sem-card.is-all-done .sem-card__progress-fill { background: var(--go-strong); }
+
+.sem-card__courses {
+  padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); flex: 1;
+}
+
+.sem-course {
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--r-xs);
+  border: 1px solid var(--line); background: var(--surface);
+  display: flex; flex-direction: column; gap: 4px;
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+.sem-course.is-done {
+  background: var(--go-tint); border-color: color-mix(in srgb, var(--go-strong) 35%, var(--line));
+}
+.sem-course.is-offset {
+  background: #fbf7ff; border-color: #d8b4fe;
+}
+.sem-course.is-pending {
+  border-style: dashed; border-color: var(--line-2); background: var(--paper);
+}
+
+.sem-course__top {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2);
+}
+.sem-course__name {
+  font-size: var(--fs-xs); font-weight: 600; color: var(--ink); line-height: 1.4;
+}
+.sem-course__cr {
+  font-size: 11px; font-weight: 700; color: var(--ink-3); flex-shrink: 0;
+  background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
+}
+.sem-course.is-done .sem-course__cr { background: color-mix(in srgb, var(--go-strong) 15%, transparent); color: var(--go-strong); }
+
+.sem-course__meta {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; margin-top: 2px;
+}
+.sem-cat-tag {
+  font-size: 10.5px; padding: 1px 6px; border-radius: 3px; font-weight: 500;
+}
+.sem-cat-tag--college { background: #e0f2fe; color: #0284c7; }
+.sem-cat-tag--dept    { background: #fef3c7; color: #d97706; }
+.sem-cat-tag--major   { background: #f3e8ff; color: #9333ea; }
+.sem-cat-tag--general { background: #e0e7ff; color: #4f46e5; }
+.sem-cat-tag--free    { background: #f1f5f9; color: #64748b; }
+
+.sem-status-pill {
+  font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.sem-status-pill--done {
+  color: var(--go-strong); background: color-mix(in srgb, var(--go-strong) 18%, transparent);
+}
+.sem-status-pill--offset {
+  color: #7e22ce; background: #eedbff; font-weight: 700;
+}
+.sem-status-pill--pending {
+  color: var(--ink-3); background: var(--surface-2);
+}
+.sem-course__offset-note {
+  font-size: 10px; color: #7e22ce; font-weight: 500; line-height: 1.3;
+}
 
 /* =====================================================================
    Responsive

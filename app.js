@@ -119,7 +119,7 @@
   const state = migrate(readJSON(STORE_KEY, null));
 
   function migrate(saved) {
-    const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {} };
+    const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {}, offsetCount: 2, passedCourses: [] };
     if (!saved) { seedDefaults(base); return base; }
     const s = Object.assign(base, saved);
     s.checked = saved.checked || {};
@@ -127,6 +127,8 @@
     s.choice = saved.choice || {};
     s.offset = saved.offset || {};
     s.credits = saved.credits || {};
+    s.offsetCount = saved.offsetCount != null ? saved.offsetCount : 2;
+    s.passedCourses = Array.isArray(saved.passedCourses) ? saved.passedCourses : [];
     // 舊版單一 major / offset / general / free 的資料搬過來
     if (typeof saved.major === 'string') s.choice.major = saved.major;
     if (typeof saved.offset === 'boolean') s.offset.major = saved.offset;
@@ -326,8 +328,10 @@
     return el('div', {}, bulkToggle(listId, courses), courseList(listId, courses));
   }
 
-  function stepper(get, set, min, max) {
-    const input = el('input', { type: 'number', min: String(min), max: String(max), value: String(get()) });
+  function stepper(get, set, min, max, id) {
+    const inputAttrs = { type: 'number', min: String(min), max: String(max), value: String(get()) };
+    if (id) inputAttrs['data-credit-id'] = id;
+    const input = el('input', inputAttrs);
     const commit = () => { set(clamp(min, max, parseInt(input.value, 10) || 0)); };
     const dec = el('button', { type: 'button', 'aria-label': '減少一學分', onClick: () => { input.value = String(clamp(min, max, (parseInt(input.value, 10) || 0) - 1)); commit(); } }, icon('i-minus'));
     const inc = el('button', { type: 'button', 'aria-label': '增加一學分', onClick: () => { input.value = String(clamp(min, max, (parseInt(input.value, 10) || 0) + 1)); commit(); } }, icon('i-plus'));
@@ -412,9 +416,11 @@
       offsetList.hidden = !sw.checked;
       save(); update();
     });
+    const maxOffset = state.offsetCount != null ? state.offsetCount : 2;
+    const offsetLimitTip = maxOffset > 0 ? `（可抵免上限 ${maxOffset} 門課）` : `（未啟用跨學程抵免）`;
     const label = others.length === 1
-      ? '用「' + others[0].label + '」的課折抵主修'
-      : '用其他學程的課折抵主修';
+      ? '用「' + others[0].label + '」的課折抵主修 ' + offsetLimitTip
+      : '用其他學程的課折抵主修 ' + offsetLimitTip;
     const offsetRow = el('label', { class: 'offset-row switch' },
       el('span', { class: 'switch' }, sw,
         el('span', { class: 'switch__track' }, el('span', { class: 'switch__thumb' }))),
@@ -441,7 +447,7 @@
       el('div', { class: 'credit-input' },
         el('label', { for: g.id + '-num' }, '已通過學分'),
         stepper(() => state.credits[g.id] || 0,
-          (v) => { state.credits[g.id] = v; save(); update(); }, 0, 200)),
+          (v) => { state.credits[g.id] = v; save(); update(); }, 0, 200, g.id)),
       g.hints
         ? el('div', { class: 'credit-hints' }, '通常包含：',
             el('ul', {}, g.hints.map((h) => el('li', {}, h))))
@@ -459,7 +465,7 @@
   function thresholdCard(t) {
     const input = el('input', { type: 'checkbox', 'aria-label': t.label });
     input.checked = !!state.thresholds[t.id];
-    const row = el('label', { class: 'threshold', 'data-pass': String(input.checked) },
+    const row = el('label', { class: 'threshold', 'data-pass': String(input.checked), 'data-threshold': t.id },
       el('span', { class: 'check' }, input, el('span', { class: 'check__box' }, icon('i-check'))),
       el('span', { class: 'threshold__label' }, t.label,
         t.note ? el('span', { class: 'threshold__note' }, t.note) : null));
@@ -484,10 +490,22 @@
     if (g.kind === 'choice') {
       const sel = selectedOption(g);
       const main = sumChecked(optListId(g, sel), sel.courses);
-      const off = state.offset[g.id]
-        ? g.options.filter((o) => o.id !== sel.id)
-            .reduce((s, o) => s + sumChecked(optListId(g, o), o.courses), 0)
-        : 0;
+      let off = 0;
+      if (state.offset[g.id] && (state.offsetCount == null || state.offsetCount > 0)) {
+        const maxOffset = state.offsetCount != null ? state.offsetCount : 2;
+        let count = 0;
+        const others = g.options.filter((o) => o.id !== sel.id);
+        for (const o of others) {
+          for (const c of (o.courses || [])) {
+            if (state.checked[ckey(optListId(g, o), c)]) {
+              if (count < maxOffset) {
+                off += c.cr;
+                count++;
+              }
+            }
+          }
+        }
+      }
       return main + off;
     }
     return sumChecked(g.id, g.courses);
@@ -599,6 +617,8 @@
       toast('恭喜，學分與門檻都達標了', 'go');
     }
     wasGo = vstate === 'go';
+
+    renderRoadmap();
   }
 
   /* =====================================================================
@@ -615,6 +635,441 @@
         .to(t, { y: 8, autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=2.2');
     } else {
       setTimeout(() => t.remove(), 2600);
+    }
+  }
+
+  /* =====================================================================
+     4 年 8 學期建議修課規劃與學程抵免
+     ===================================================================== */
+  const DEFAULT_BASE_SCHEDULE = [
+    {
+      semId: '112-1',
+      semLabel: '大一上（112-1）',
+      courses: [
+        { code: 'ES300208', name: '基礎程式設計(一)', cr: 1, cat: 'college' },
+        { code: 'ES300209', name: '基礎程式設計(二)', cr: 1, cat: 'college' },
+        { code: 'ES300210', name: '基礎程式設計(三)', cr: 1, cat: 'college' },
+        { code: '', name: '電腦繪圖', cr: 3, cat: 'dept' },
+        { code: 'EP300356', name: '新媒體內容技術與設計', cr: 2, cat: 'dept' },
+        { code: '', name: '文學賞析', cr: 2, cat: 'general' },
+        { code: '', name: '共通英語文(一)', cr: 3, cat: 'general' },
+        { code: '', name: '資訊科技概論', cr: 2, cat: 'general' },
+        { code: '', name: '健康與生活', cr: 2, cat: 'general' },
+        { code: '', name: '體育(一)', cr: 0, cat: 'general' },
+        { code: '', name: '服務學習(一)', cr: 0, cat: 'general' },
+      ],
+    },
+    {
+      semId: '112-2',
+      semLabel: '大一下（112-2）',
+      courses: [
+        { code: 'EP300334', name: '平面影像設計', cr: 3, cat: 'dept' },
+        { code: '', name: '智慧傳播應用實務', cr: 3, cat: 'dept' },
+        { code: '', name: '網頁設計與數位敘事', cr: 3, cat: 'dept' },
+        { code: 'EP300336', name: '動態攝影與剪輯', cr: 3, cat: 'dept' },
+        { code: '', name: '文學與生活', cr: 2, cat: 'general' },
+        { code: '', name: '共通英語文(二)', cr: 3, cat: 'general' },
+        { code: '', name: '程式設計與智慧應用', cr: 2, cat: 'general' },
+        { code: '', name: '歷史與文化', cr: 2, cat: 'general' },
+        { code: '', name: '體育(二)', cr: 0, cat: 'general' },
+        { code: '', name: '服務學習(二)', cr: 0, cat: 'general' },
+      ],
+    },
+    {
+      semId: '113-1',
+      semLabel: '大二上（113-1）',
+      courses: [
+        { code: 'EP300355', name: '人工智慧與雲端應用', cr: 3, cat: 'college' },
+        { code: 'EP300317', name: 'Unity多媒體應用', cr: 3, cat: 'dept' },
+        { code: 'EP300358', name: '媒體數據分析', cr: 3, cat: 'dept' },
+        { code: '', name: '科技英文', cr: 2, cat: 'general' },
+        { code: '', name: '法律與生活', cr: 2, cat: 'general' },
+        { code: '', name: '資料蒐集與田野調查', cr: 2, cat: 'dept' },
+        { code: '', name: '進階採訪實務', cr: 2, cat: 'dept' },
+        { code: '', name: '體育(三)', cr: 0, cat: 'general' },
+      ],
+    },
+    {
+      semId: '113-2',
+      semLabel: '大二下（113-2）',
+      courses: [
+        { code: 'EP300232', name: '網路媒體與社群分析', cr: 3, cat: 'dept' },
+        { code: 'EP300320', name: 'AR/VR應用實務', cr: 3, cat: 'dept' },
+        { code: 'EP300053', name: '傳播倫理與法規', cr: 3, cat: 'dept' },
+        { code: '', name: '設計思考與創新', cr: 2, cat: 'general' },
+        { code: '', name: '博雅通識(一)', cr: 2, cat: 'general' },
+        { code: '', name: '體育(四)', cr: 0, cat: 'general' },
+      ],
+    },
+    {
+      semId: '114-1',
+      semLabel: '大三上（114-1）',
+      courses: [
+        { code: 'EP300359', name: '3D與虛擬攝影棚應用', cr: 3, cat: 'dept' },
+        { code: 'EP300054', name: '傳播理論', cr: 3, cat: 'dept' },
+        { code: '', name: '博雅通識(二)', cr: 2, cat: 'general' },
+        { code: '', name: '廣告企劃實務', cr: 2, cat: 'dept' },
+      ],
+    },
+    {
+      semId: '114-2',
+      semLabel: '大三下（114-2）',
+      courses: [
+        { code: 'EP300176', name: '畢業專題(一)', cr: 1, cat: 'college' },
+        { code: '', name: '博雅通識(三)', cr: 2, cat: 'general' },
+        { code: '', name: '新聞播報與轉播技巧', cr: 2, cat: 'dept' },
+        { code: '', name: '專業實習(一)', cr: 3, cat: 'dept' },
+      ],
+    },
+    {
+      semId: '115-1',
+      semLabel: '大四上（115-1）',
+      courses: [
+        { code: '', name: '畢業專題(二)', cr: 1, cat: 'college' },
+        { code: '', name: '專業實習(二)', cr: 3, cat: 'dept' },
+        { code: '', name: '自由選修', cr: 2, cat: 'free' },
+      ],
+    },
+    {
+      semId: '115-2',
+      semLabel: '大四下（115-2）',
+      courses: [
+        { code: '', name: '資訊研討', cr: 1, cat: 'college' },
+        { code: '', name: '畢業展演', cr: 1, cat: 'dept' },
+        { code: '', name: '自由選修(補足學分)', cr: 2, cat: 'free' },
+      ],
+    },
+  ];
+
+  const TRACK_SEMESTER_COURSES = {
+    newmedia: {
+      '112-2': [
+        { code: 'EP300329', name: '傳播敘事與劇本創作', cr: 2, cat: 'major' },
+      ],
+      '113-1': [
+        { code: 'EP300368', name: '紀錄片製作', cr: 3, cat: 'major' },
+      ],
+      '113-2': [
+        { code: 'EP300347', name: '影音製作技術', cr: 3, cat: 'major' },
+        { code: 'EP300369', name: '影音傳播資料庫', cr: 3, cat: 'major' },
+        { code: '', name: '跨領域自由選修', cr: 3, cat: 'free' },
+      ],
+      '114-1': [
+        { code: 'EP300271', name: '製片實務', cr: 3, cat: 'major' },
+        { code: '', name: '影音虛實整合', cr: 3, cat: 'major' },
+        { code: 'EP300371', name: '互動裝置媒體應用', cr: 2, cat: 'major' },
+        { code: 'EP300372', name: '影音特效實務', cr: 3, cat: 'major' },
+        { code: '', name: '專業自由選修', cr: 2, cat: 'free' },
+      ],
+      '114-2': [
+        { code: 'EP300373', name: '劇情短片製作', cr: 3, cat: 'major' },
+      ],
+      '115-1': [
+        { code: '', name: '數位創作與行銷', cr: 2, cat: 'major' },
+      ],
+      '115-2': [],
+    },
+    smart: {
+      '112-2': [
+        { code: '', name: '新聞採訪與寫作', cr: 3, cat: 'major' },
+      ],
+      '113-1': [
+        { code: '', name: '情境感知傳播應用', cr: 3, cat: 'major' },
+        { code: 'EP300361', name: '資訊視覺化', cr: 3, cat: 'major' },
+      ],
+      '113-2': [
+        { code: '', name: '智慧媒體分析', cr: 3, cat: 'major' },
+        { code: '', name: '新聞攝影與剪輯', cr: 3, cat: 'major' },
+        { code: '', name: '媒體傳播資料庫', cr: 3, cat: 'major' },
+      ],
+      '114-1': [
+        { code: '', name: '網路訊息檢索', cr: 3, cat: 'major' },
+        { code: '', name: '知識性節目製作', cr: 3, cat: 'major' },
+        { code: '', name: '專業自由選修', cr: 2, cat: 'free' },
+      ],
+      '114-2': [
+        { code: '', name: '媒體科技實務選修', cr: 3, cat: 'major' },
+      ],
+      '115-1': [
+        { code: '', name: '網路新聞平台應用實務', cr: 3, cat: 'major' },
+      ],
+      '115-2': [],
+    },
+  };
+
+  function matchName(n1, n2) {
+    if (!n1 || !n2) return false;
+    const a = norm(n1);
+    const b = norm(n2);
+    if (a === b) return true;
+    if (a.includes(b) || b.includes(a)) {
+      if (Math.min(a.length, b.length) >= 3) return true;
+    }
+    // 常見課程名變體與簡寫相容
+    if (/unity/i.test(a) && /unity/i.test(b)) return true;
+    if (/ar\/vr|arvr/i.test(a) && /ar\/vr|arvr/i.test(b)) return true;
+    if (/3d.*虛擬/i.test(a) && /3d.*虛擬/i.test(b)) return true;
+    if (/影音.*資料庫/i.test(a) && /影音.*資料庫/i.test(b)) return true;
+    if (/媒體.*資料庫/i.test(a) && /媒體.*資料庫/i.test(b)) return true;
+    if (/情[境感]感知/i.test(a) && /情[境感]感知/i.test(b)) return true;
+    if (/智慧媒體/i.test(a) && /智慧媒體/i.test(b)) return true;
+    return false;
+  }
+
+  function isCourseCompleted(course) {
+    const cName = course.name;
+
+    // 1. 檢查 state.checked
+    for (const k in state.checked) {
+      if (state.checked[k]) {
+        const parts = k.split('::');
+        const checkedName = parts[1] || parts[0];
+        if (matchName(checkedName, cName)) {
+          return { completed: true, reason: '已勾選' };
+        }
+      }
+    }
+
+    // 2. 檢查 state.passedCourses
+    if (state.passedCourses && state.passedCourses.length) {
+      for (const p of state.passedCourses) {
+        if (course.code && p.code && course.code.toUpperCase() === p.code.toUpperCase()) {
+          return { completed: true, reason: p.score ? ('成績 ' + p.score) : '已修畢' };
+        }
+        if (matchName(p.name, cName)) {
+          return { completed: true, reason: p.score ? ('成績 ' + p.score) : '已修畢' };
+        }
+      }
+    }
+
+    // 3. 通識體育與服務學習門檻
+    if (/體育/.test(cName)) {
+      if (state.thresholds['pe']) return { completed: true, reason: '門檻已過' };
+      if (state.passedCourses && state.passedCourses.some(p => /體育/.test(p.name) && (p.name.includes(cName.slice(-3)) || p.sem))) {
+        return { completed: true, reason: '已通過' };
+      }
+    }
+    if (/服務學習/.test(cName)) {
+      if (state.thresholds['service']) return { completed: true, reason: '服務學習已過' };
+      if (state.passedCourses && state.passedCourses.some(p => /永續發展|服務學習/.test(p.name))) {
+        return { completed: true, reason: '已通過' };
+      }
+    }
+
+    // 4. 博雅通識與自由選修（依已通過學分認定）
+    if (/博雅通識/.test(cName)) {
+      const genGroup = GROUPS.find(g => g.id === 'general' || /通識/.test(g.title));
+      const genCr = (genGroup && groupCredits(genGroup)) || (state.credits && state.credits.general) || 0;
+      if (genCr >= 24) return { completed: true, reason: '通識達標' };
+    }
+    if (/自由選修/.test(cName)) {
+      const freeGroup = GROUPS.find(g => g.id === 'free' || /自由/.test(g.title));
+      const freeCr = (freeGroup && groupCredits(freeGroup)) || (state.credits && state.credits.free) || 0;
+      if (freeCr >= 20) return { completed: true, reason: '選修達標' };
+    }
+
+    return { completed: false, reason: '' };
+  }
+
+  function renderRoadmap() {
+    const grid = $('#roadmap-grid');
+    if (!grid) return;
+
+    // 1. 取得當前主修學程與可選學程清單
+    const choiceGroup = GROUPS.find(g => g.kind === 'choice');
+    const trackOptions = (choiceGroup && choiceGroup.options) ? choiceGroup.options : [
+      { id: 'newmedia', label: '新媒體傳播內容學程' },
+      { id: 'smart', label: '智慧傳播應用學程' },
+    ];
+
+    let currentTrackId = state.choice['major'];
+    if (!currentTrackId || !trackOptions.some(o => o.id === currentTrackId)) {
+      currentTrackId = trackOptions[0].id;
+      state.choice['major'] = currentTrackId;
+    }
+
+    // 2. 渲染學程切換分段按鈕
+    const segMount = $('#roadmap-track-seg');
+    if (segMount) {
+      segMount.innerHTML = '';
+      trackOptions.forEach(opt => {
+        const isActive = opt.id === currentTrackId;
+        const b = el('button', {
+          class: 'segmented__btn' + (isActive ? ' is-active' : ''),
+          type: 'button',
+          'aria-pressed': String(isActive),
+          onClick: () => {
+            if (state.choice['major'] === opt.id) return;
+            state.choice['major'] = opt.id;
+            // 連動主選單選項狀態
+            const mainSeg = $('[aria-label="' + (choiceGroup ? choiceGroup.title : '主修學程（二選一）') + '"]');
+            if (mainSeg) {
+              const bIndex = trackOptions.findIndex(o => o.id === opt.id);
+              const btns = $$('.segmented__btn', mainSeg);
+              if (btns[bIndex]) btns[bIndex].click();
+            } else {
+              save();
+              update();
+            }
+          },
+        }, opt.label);
+        segMount.append(b);
+      });
+    }
+
+    // 3. 渲染抵免門數選擇按鈕 (0, 1, 2, 3, 4)
+    const offsetMount = $('#roadmap-offset-group');
+    const offsetTip = $('#roadmap-offset-tip');
+    const curOffsetCount = state.offsetCount != null ? state.offsetCount : 2;
+
+    if (offsetMount) {
+      offsetMount.innerHTML = '';
+      [0, 1, 2, 3, 4].forEach(n => {
+        const isSelected = n === curOffsetCount;
+        const btn = el('button', {
+          class: 'offset-btn' + (isSelected ? ' is-active' : ''),
+          type: 'button',
+          'aria-pressed': String(isSelected),
+          title: n === 2 ? '折抵 2 門（系所推薦預設值）' : `折抵 ${n} 門`,
+          onClick: () => {
+            state.offsetCount = n;
+            save();
+            update();
+          },
+        }, n === 2 ? '2 門 (推薦)' : (n + ' 門'));
+        offsetMount.append(btn);
+      });
+    }
+
+    // 4. 計算抵免池：從「非目前主修學程」中找出已修畢的課程
+    const otherTrackId = trackOptions.find(o => o.id !== currentTrackId)?.id || (currentTrackId === 'newmedia' ? 'smart' : 'newmedia');
+    const otherTrackCourses = [];
+    const otherSemMap = TRACK_SEMESTER_COURSES[otherTrackId] || {};
+    Object.values(otherSemMap).forEach(list => {
+      list.forEach(c => {
+        if (c.cat === 'major') otherTrackCourses.push(c);
+      });
+    });
+
+    // 找出另一學程中已通過的課程
+    const passedFromOther = [];
+    otherTrackCourses.forEach(c => {
+      const res = isCourseCompleted(c);
+      if (res.completed) {
+        passedFromOther.push({ course: c, reason: res.reason });
+      }
+    });
+
+    if (offsetTip) {
+      if (curOffsetCount === 0) {
+        offsetTip.textContent = '未啟用跨學程抵免';
+      } else {
+        offsetTip.textContent = `已修另學程 ${passedFromOther.length} 門，最多可抵免 ${curOffsetCount} 門`;
+      }
+    }
+
+    // 5. 組合 8 學期完整課程
+    let availableOffsets = curOffsetCount > 0 ? [...passedFromOther] : [];
+    let usedOffsets = [];
+
+    const activeSemMap = TRACK_SEMESTER_COURSES[currentTrackId] || {};
+    let totalScheduleCredits = 0;
+    let totalCompletedCredits = 0;
+
+    grid.innerHTML = '';
+
+    DEFAULT_BASE_SCHEDULE.forEach(semBase => {
+      const trackExtra = activeSemMap[semBase.semId] || [];
+      const semCourses = [...semBase.courses, ...trackExtra];
+
+      let semRequiredCr = 0;
+      let semEarnedCr = 0;
+
+      const courseNodes = semCourses.map(c => {
+        semRequiredCr += c.cr;
+        totalScheduleCredits += c.cr;
+
+        let status = isCourseCompleted(c);
+        let isOffset = false;
+        let offsetBy = '';
+
+        // 若本課程尚未修畢，且是學程核心課 (major)，嘗試從抵免池進行跨學程抵免
+        if (!status.completed && c.cat === 'major' && availableOffsets.length > 0) {
+          const offCandidate = availableOffsets.shift();
+          usedOffsets.push({ target: c.name, source: offCandidate.course.name });
+          status = {
+            completed: true,
+            reason: `跨學程抵免：由「${offCandidate.course.name}」抵免`,
+          };
+          isOffset = true;
+          offsetBy = offCandidate.course.name;
+        }
+
+        if (status.completed) {
+          semEarnedCr += c.cr;
+          totalCompletedCredits += c.cr;
+        }
+
+        // 建立課程 DOM
+        const courseEl = el('div', {
+          class: 'sem-course ' + (isOffset ? 'is-offset' : (status.completed ? 'is-done' : 'is-pending')),
+        },
+          el('div', { class: 'sem-course__top' },
+            el('span', { class: 'sem-course__name' }, c.name),
+            el('span', { class: 'sem-course__cr' }, c.cr + ' 學分')
+          ),
+          el('div', { class: 'sem-course__meta' },
+            el('span', { class: 'sem-cat-tag sem-cat-tag--' + c.cat }, getCatLabel(c.cat)),
+            el('span', {
+              class: 'sem-status-pill sem-status-pill--' + (isOffset ? 'offset' : (status.completed ? 'done' : 'pending')),
+            },
+              isOffset ? '★ 跨學程抵免' : (status.completed ? '✔ 已修畢' : '⏳ 待修習')
+            )
+          ),
+          isOffset ? el('div', { class: 'sem-course__offset-note' }, `由「${offsetBy}」抵免`) : null
+        );
+
+        return courseEl;
+      });
+
+      const isAllDone = semEarnedCr >= semRequiredCr && semRequiredCr > 0;
+      const progressPct = semRequiredCr > 0 ? Math.min(100, Math.round((semEarnedCr / semRequiredCr) * 100)) : 0;
+
+      const cardEl = el('div', { class: 'sem-card' + (isAllDone ? ' is-all-done' : '') },
+        el('div', { class: 'sem-card__head' },
+          el('span', { class: 'sem-card__title' }, semBase.semLabel),
+          el('span', { class: 'sem-card__cr' },
+            isAllDone
+              ? el('b', {}, `${semEarnedCr} / ${semRequiredCr} 學分 ✔`)
+              : el('span', {}, `${semEarnedCr} / ${semRequiredCr} 學分`)
+          )
+        ),
+        el('div', { class: 'sem-card__progress-bar' },
+          el('div', { class: 'sem-card__progress-fill', style: `width: ${progressPct}%` })
+        ),
+        el('div', { class: 'sem-card__courses' }, ...courseNodes)
+      );
+
+      grid.append(cardEl);
+    });
+
+    // 6. 更新總覽徽章
+    const summaryBadge = $('#roadmap-summary-badge');
+    if (summaryBadge) {
+      const overallPct = Math.min(100, Math.round((totalCompletedCredits / totalScheduleCredits) * 100));
+      summaryBadge.innerHTML = `已修畢 <b>${totalCompletedCredits}</b> / ${totalScheduleCredits} 學分（進度 <b>${overallPct}%</b>）` +
+        (usedOffsets.length > 0 ? ` · 跨學程抵免 <b>${usedOffsets.length}</b> 門` : '');
+    }
+  }
+
+  function getCatLabel(cat) {
+    switch (cat) {
+      case 'college': return '院核心';
+      case 'dept': return '系核心';
+      case 'major': return '學程核心';
+      case 'general': return '通識共同';
+      case 'free': return '自由選修';
+      default: return '選修';
     }
   }
 
@@ -716,9 +1171,15 @@
     // 重修：只要有一次通過就算過，不因先前不及格被列入略過
     const reallySkipped = skipped.filter((n) => !matchedNames.includes(n));
 
+    state.passedCourses = matchedNames.map((n) => ({ name: n, cr: 0 }));
     matchedKeys.forEach((k) => { state.checked[k] = true; });
     syncChecks();
     save(); update();
+
+    const resBar = $('#import-result-bar');
+    if (resBar) resBar.hidden = false;
+    const badge = $('#student-badge');
+    if (badge) badge.innerHTML = '';
 
     const res = $('#import-result');
     res.className = 'import__result is-ok';
@@ -758,12 +1219,359 @@
       const key = row.getAttribute('data-key');
       const input = row.querySelector('input');
       const on = !!state.checked[key];
-      if (input.checked !== on) {
+      if (input && input.checked !== on) {
         input.checked = on;
         row.setAttribute('data-checked', String(on));
         if (on) animCheck(row.querySelector('.check__box'), true);
       }
     });
+  }
+
+  /* 依 state 同步學分數輸入框 */
+  function syncCredits() {
+    $$('input[data-credit-id]').forEach((input) => {
+      const id = input.getAttribute('data-credit-id');
+      if (id && typeof state.credits[id] === 'number') {
+        input.value = String(state.credits[id]);
+      }
+    });
+  }
+
+  /* 依 state 同步畢業門檻檢定 */
+  function syncThresholds() {
+    $$('label.threshold[data-threshold]').forEach((row) => {
+      const id = row.getAttribute('data-threshold');
+      const input = row.querySelector('input');
+      const pass = !!state.thresholds[id];
+      if (input && input.checked !== pass) {
+        input.checked = pass;
+        row.setAttribute('data-pass', String(pass));
+        animCheck(row.querySelector('.check__box'), pass);
+      }
+    });
+  }
+
+  /* =====================================================================
+     Excel 成績單解析與智慧試算
+     ===================================================================== */
+  function parseExcelWorkbook(wb, filename) {
+    let studentName = '';
+    let studentId = '';
+    let printDate = '';
+    const semesters = [];
+    const rawRecords = [];
+
+    (wb.SheetNames || []).forEach((sheetName) => {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) return;
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (!rows || rows.length < 2) return;
+
+      // 1. 嘗試讀取學生姓名、學號與製表日期
+      for (let r = 0; r < Math.min(6, rows.length); r++) {
+        const row = rows[r].map((c) => String(c || '').trim());
+        const idIdx = row.findIndex((c) => c === '學號');
+        const nameIdx = row.findIndex((c) => c === '姓名');
+        const dateIdx = row.findIndex((c) => c === '製表日期');
+        if (idIdx !== -1 && rows[r + 1]) {
+          const nextRow = rows[r + 1].map((c) => String(c || '').trim());
+          if (!studentId && nextRow[idIdx]) studentId = nextRow[idIdx];
+          if (!studentName && nameIdx !== -1 && nextRow[nameIdx]) studentName = nextRow[nameIdx];
+          if (!printDate && dateIdx !== -1 && nextRow[dateIdx]) printDate = nextRow[dateIdx];
+        }
+      }
+
+      // 2. 尋找表格標題列（需含有 課號 及 課名/課程名稱）
+      let headerRowIdx = -1;
+      let colMap = { opt: -1, code: -1, name: -1, cr: -1, score: -1 };
+
+      for (let r = 0; r < Math.min(12, rows.length); r++) {
+        const row = rows[r].map((c) => String(c || '').trim());
+        const codeCol = row.findIndex((c) => c === '課號');
+        const nameCol = row.findIndex((c) => /課名|課程名稱/.test(c));
+        if (codeCol !== -1 && nameCol !== -1) {
+          headerRowIdx = r;
+          colMap.code = codeCol;
+          colMap.name = nameCol;
+          colMap.opt = row.findIndex((c) => /選別/.test(c));
+          colMap.cr = row.findIndex((c) => /學分/.test(c));
+          // 優先匹配「學期成績」，避免誤配到「期中成績」
+          let sIdx = row.findIndex((c) => /學期成績|學年成績|期末成績/.test(c));
+          if (sIdx === -1) sIdx = row.findIndex((c) => /成績/.test(c) && !/期中/.test(c));
+          colMap.score = sIdx;
+          break;
+        }
+      }
+
+      if (headerRowIdx === -1) return;
+      semesters.push(sheetName);
+
+      // 3. 讀取各門課程列
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row || !row.length) continue;
+        // 一旦遇到「排名」或「合計」列，代表本學期修課清單已結束
+        if (row.some((c) => /排名|合計|平均|班級人數/.test(String(c || '')))) break;
+
+        const code = String(row[colMap.code] || '').trim();
+        const name = String(row[colMap.name] || '').trim();
+        if (!name || name === 'None' || !code) continue;
+        if (name === '操行' || code === 'CR101') continue;
+
+        const opt = colMap.opt !== -1 ? String(row[colMap.opt] || '').trim() : '';
+        const crVal = colMap.cr !== -1 ? parseFloat(row[colMap.cr]) : 0;
+        const cr = isNaN(crVal) ? 0 : crVal;
+        const scoreStr = colMap.score !== -1 ? String(row[colMap.score] || '').trim() : '';
+
+        let passed = false;
+        let reason = '';
+        if (/停修|退選|撤選/.test(scoreStr)) {
+          passed = false;
+          reason = '停修';
+        } else if (/未通過|不及格|fail/i.test(scoreStr)) {
+          passed = false;
+          reason = '不及格';
+        } else if (/及格|通過|抵免|pass/i.test(scoreStr)) {
+          passed = true;
+          reason = scoreStr;
+        } else {
+          const num = parseFloat(scoreStr);
+          if (!isNaN(num)) {
+            if (num >= 60.0) {
+              passed = true;
+              reason = String(num);
+            } else {
+              passed = false;
+              reason = num + '分 (不及格)';
+            }
+          } else {
+            passed = false;
+            reason = scoreStr || '無成績';
+          }
+        }
+
+        rawRecords.push({
+          sem: sheetName,
+          opt,
+          code,
+          name,
+          cr,
+          score: scoreStr,
+          passed,
+          reason,
+        });
+      }
+    });
+
+    return {
+      studentName,
+      studentId,
+      printDate,
+      semesters,
+      records: rawRecords,
+      filename,
+    };
+  }
+
+  function applyExcelImport(data) {
+    if (!data || !data.records || !data.records.length) {
+      alert('未能在 Excel 檔案中找到有效的課程成績紀錄，請確認此為亞洲大學學生資訊系統匯出之歷年成績 Excel 檔。');
+      return;
+    }
+
+    const idx = allCourses();
+    const courseMap = new Map();
+    data.records.forEach((r) => {
+      const idKey = (r.code ? r.code.toUpperCase() : norm(r.name));
+      if (!courseMap.has(idKey)) {
+        courseMap.set(idKey, []);
+      }
+      courseMap.get(idKey).push(r);
+    });
+
+    const passedCourses = [];
+    const skippedCourses = [];
+
+    courseMap.forEach((attempts) => {
+      const passAttempt = attempts.find((a) => a.passed);
+      if (passAttempt) {
+        passedCourses.push(passAttempt);
+      } else {
+        const last = attempts[attempts.length - 1];
+        skippedCourses.push(last);
+      }
+    });
+
+    const matchedKeys = new Set();
+    const matchedNames = [];
+    const unmatchedPassed = [];
+
+    passedCourses.forEach((c) => {
+      const nline = (c.code + ' ' + c.name).toLowerCase();
+      const hit = matchCourse(nline, idx);
+      if (hit) {
+        if (!matchedKeys.has(hit.key)) {
+          matchedNames.push(hit.c.name);
+          matchedKeys.add(hit.key);
+        }
+      } else {
+        unmatchedPassed.push(c);
+      }
+    });
+
+    // 區分通識共同與自由選修
+    const isGeneralCourse = (c) => {
+      if (c.opt && c.opt.includes('通識')) return true;
+      if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
+      const n = norm(c.name);
+      return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
+    };
+
+    let generalCr = 0;
+    const generalList = [];
+    let freeCr = 0;
+    const freeList = [];
+
+    unmatchedPassed.forEach((c) => {
+      if (isGeneralCourse(c)) {
+        generalCr += c.cr;
+        generalList.push(c);
+      } else {
+        freeCr += c.cr;
+        freeList.push(c);
+      }
+    });
+
+    matchedKeys.forEach((k) => { state.checked[k] = true; });
+
+    const genGroup = GROUPS.find((g) => g.id === 'general' || /通識/.test(g.title));
+    if (genGroup && genGroup.kind === 'credits') {
+      state.credits[genGroup.id] = Math.round(generalCr);
+    }
+    const freeGroup = GROUPS.find((g) => g.id === 'free' || /自由/.test(g.title));
+    if (freeGroup && freeGroup.kind === 'credits') {
+      state.credits[freeGroup.id] = Math.round(freeCr);
+    }
+
+    // 畢業門檻自動標記
+    const detectedThresholds = [];
+    const peCount = passedCourses.filter((c) => /體育/.test(c.name) || /GSG/i.test(c.code)).length;
+    if (peCount >= 4) {
+      state.thresholds['pe'] = true;
+      detectedThresholds.push('體育（四學期全數通過）');
+    }
+    if (passedCourses.some((c) => /永續發展與實踐|服務學習/.test(c.name))) {
+      state.thresholds['service'] = true;
+      detectedThresholds.push('服務學習 / 勞作教育（由永續發展與實踐抵免）');
+    }
+    if (passedCourses.some((c) => /基礎程式設計|資訊科技概論|程式設計與智慧應用/.test(c.name))) {
+      state.thresholds['info'] = true;
+      detectedThresholds.push('資訊能力（修畢程式設計/資訊科技課程）');
+    }
+    if (passedCourses.some((c) => /共通英語文|進修英語|科技英文/.test(c.name))) {
+      state.thresholds['english'] = true;
+      detectedThresholds.push('英文能力（修畢指定英語文課程）');
+    }
+
+    state.passedCourses = passedCourses.map(c => ({
+      sem: c.sem,
+      code: c.code,
+      name: c.name,
+      cr: c.cr,
+      score: c.score,
+      grade: c.score,
+    }));
+
+    syncChecks();
+    syncCredits();
+    syncThresholds();
+    save();
+    update();
+
+    // 顯示結果
+    const resBar = $('#import-result-bar');
+    if (resBar) resBar.hidden = false;
+
+    const badge = $('#student-badge');
+    if (badge) {
+      badge.innerHTML = '';
+      const nameStr = data.studentName || '同學';
+      const idStr = data.studentId ? ` (${data.studentId})` : '';
+      const semsStr = data.semesters.length ? ` · 歷年 ${data.semesters.length} 個學期` : '';
+      const totalCr = Math.round(passedCourses.reduce((s, c) => s + c.cr, 0));
+      badge.append(
+        icon('i-cap'),
+        el('span', {}, nameStr + idStr),
+        el('span', { class: 'badge-meta' }, semsStr + ` · 共 ${totalCr} 及格學分`)
+      );
+    }
+
+    const res = $('#import-result');
+    if (res) {
+      res.className = 'import__result is-ok';
+      res.textContent = `成功匯入！已勾選 ${matchedKeys.size} 門核心與學程課程，並自動加總 通識 ${Math.round(generalCr)} 學分、自由選修 ${Math.round(freeCr)} 學分。`;
+    }
+
+    const detail = $('#import-detail');
+    detail.innerHTML = '';
+    detail.hidden = false;
+
+    if (matchedNames.length) {
+      detail.append(el('div', { class: 'import__list' },
+        el('b', {}, '已自動勾選核心/學程（' + matchedNames.length + ' 門）：'),
+        matchedNames.join('、')));
+    }
+
+    if (generalList.length || freeList.length) {
+      detail.append(el('div', { class: 'import__list import__list--credits' },
+        el('b', {}, '已自動帶入學分：'),
+        `通識共同 ${Math.round(generalCr)} 學分（${generalList.map(c => c.name).join('、')}）；` +
+        `自由選修 ${Math.round(freeCr)} 學分（${freeList.map(c => c.name + (c.cr ? '(' + c.cr + ')' : '')).join('、')}）`));
+    }
+
+    if (skippedCourses.length) {
+      detail.append(el('div', { class: 'import__list import__list--skip' },
+        el('b', {}, '停修或不及格（未採計，共 ' + skippedCourses.length + ' 筆）：'),
+        skippedCourses.map((c) => `${c.name} [${c.reason}]`).join('、'),
+        el('span', { class: 'import__hint' }, '（重修通過者已正常採計，僅列出最終未通過或停修課程）')));
+    }
+
+    if (detectedThresholds.length) {
+      detail.append(el('div', { class: 'import__list' },
+        el('b', {}, '畢業門檻檢定已自動標記：'),
+        detectedThresholds.join('、'),
+        el('span', { class: 'import__hint' }, '（若有其他自辦檢定或特殊規範，仍請以系辦或相關單位認定為準）')));
+    }
+
+    const un = $('#import-unmatched');
+    if (un) un.hidden = true;
+
+    const importCard = $('#import');
+    if (importCard && importCard.getAttribute('data-open') !== 'true') {
+      $('#import-head').click();
+    }
+    toast('成績單匯入成功！已為您完成試算', 'go');
+  }
+
+  function handleExcelFile(file) {
+    if (!file) return;
+    if (typeof XLSX === 'undefined') {
+      alert('Excel 解析模組尚未載入，請確認 xlsx.full.min.js 是否就緒。');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const parsed = parseExcelWorkbook(wb, file.name);
+        applyExcelImport(parsed);
+      } catch (err) {
+        console.error('Excel 讀取錯誤', err);
+        alert('讀取 Excel 檔案時發生錯誤：' + (err.message || err));
+      }
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   /* =====================================================================
@@ -902,6 +1710,456 @@
     return cur;
   }
 
+  /* =====================================================================
+     ODT / PDF 課綱自動解析模組（支援學校課規查詢匯出檔案）
+     ===================================================================== */
+  function cleanStr(s) {
+    return String(s || '').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  function buildCurriculumFromStructuredRows(rows, meta) {
+    const collegeCore = {
+      id: 'college-core',
+      title: '資訊學院 · 院核心',
+      required: 9,
+      kind: 'checklist',
+      note: '全院共同必修，每一門都要修過。',
+      courses: []
+    };
+    const deptCore = {
+      id: 'dept-core',
+      title: (meta.dept ? meta.dept.replace(/學系$/, '系') : '系') + ' · 系核心必修',
+      required: 39,
+      kind: 'checklist',
+      note: '系上共同必修，全部都要修過。',
+      courses: []
+    };
+    const majorGroup = {
+      id: 'major',
+      title: '主修學程（擇一修滿）',
+      required: 27,
+      kind: 'choice',
+      note: '各專業學程擇一修滿規定學分。',
+      offsetNote: '折抵方向會跟著主修走。實際折抵請以系辦認定為準。',
+      options: []
+    };
+    const generalGroup = {
+      id: 'general',
+      title: '校定必修 · 通識共同',
+      required: 30,
+      kind: 'credits',
+      note: '含共通英語文、專業英語文、中文、體育、服務學習、通識選修等。請從成績單加總後填入已通過學分。'
+    };
+    const freeGroup = {
+      id: 'free',
+      title: '自由選修 · 其他',
+      required: 23,
+      kind: 'credits',
+      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+    };
+
+    let currentGroup = null;
+    let currentOption = null;
+
+    rows.forEach(cells => {
+      const line = cells.join(' ');
+
+      if (/以院為教學核心課程|院核心/.test(line)) {
+        const crM = line.match(/(\d+)\s*學分/);
+        if (crM) collegeCore.required = parseInt(crM[1], 10);
+        currentGroup = collegeCore;
+        currentOption = null;
+      } else if (/系核心課程|系核心/.test(line) && !/他系/.test(line)) {
+        const crM = line.match(/(\d+)\s*學分/);
+        if (crM) deptCore.required = parseInt(crM[1], 10);
+        currentGroup = deptCore;
+        currentOption = null;
+      } else if (/系專業選修學程|主修學程/.test(line)) {
+        currentGroup = majorGroup;
+        currentOption = null;
+      } else if (/自由選修|分流實習/.test(line)) {
+        currentGroup = freeGroup;
+        currentOption = null;
+      }
+
+      if (currentGroup === majorGroup) {
+        const optM = line.match(/([^\s;；]+學程)\s*(\d+)\s*學分/);
+        if (optM && !optM[1].includes('他系')) {
+          const optLabel = optM[1];
+          let opt = majorGroup.options.find(o => o.label === optLabel);
+          if (!opt) {
+            const optId = optLabel.includes('智慧') ? 'smart' : (optLabel.includes('新媒體') ? 'newmedia' : 'opt-' + (majorGroup.options.length + 1));
+            opt = { id: optId, label: optLabel, courses: [] };
+            majorGroup.options.push(opt);
+          }
+          currentOption = opt;
+        }
+      }
+
+      let courseName = '';
+      let credits = 0;
+      cells.forEach((c, cIdx) => {
+        if (/類別|科目名稱|修課|學分|備註|講授|實習|學期|年級/.test(c)) return;
+        if (/必修|選修|通識|學程|校定|核心/.test(c)) return;
+        if (!courseName && /[一-鿿]{2,}/.test(c)) {
+          courseName = c.replace(/^[*＊\s]+/, '').trim();
+        }
+        if (courseName && cIdx > 0 && /^[1-6]$/.test(c)) {
+          credits = parseInt(c, 10);
+        }
+      });
+
+      if (courseName && credits > 0) {
+        const courseObj = { code: '', name: courseName, cr: credits };
+        if (currentGroup === collegeCore) {
+          if (!collegeCore.courses.some(x => x.name === courseName)) collegeCore.courses.push(courseObj);
+        } else if (currentGroup === deptCore) {
+          if (!deptCore.courses.some(x => x.name === courseName)) deptCore.courses.push(courseObj);
+        } else if (currentGroup === majorGroup && currentOption) {
+          if (!currentOption.courses.some(x => x.name === courseName)) currentOption.courses.push(courseObj);
+        }
+      }
+    });
+
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
+    if (meta.totalRequired > assigned) {
+      freeGroup.required += (meta.totalRequired - assigned);
+    }
+
+    const curId = 'cur-' + (meta.dept || 'dept') + '-' + (meta.cohort || '').replace(/\D+/g, '');
+
+    return {
+      meta: {
+        id: curId,
+        school: meta.school,
+        dept: meta.dept,
+        cohort: meta.cohort,
+        totalRequired: meta.totalRequired
+      },
+      groups: resGroups,
+      thresholds: [
+        { id: 'chinese', label: '中文能力檢定', note: '可由指定課程或檢定通過抵免。' },
+        { id: 'english', label: '英文能力檢定', note: '共通英語文 / 外語能力檢定。' },
+        { id: 'info', label: '資訊能力檢定', note: '資訊應用能力相關檢定。' },
+        { id: 'service', label: '服務學習 / 勞作教育', note: '可由永續發展與實踐等課程抵免。' },
+        { id: 'pe', label: '體育（四學期）', note: '體育(一)～(四) 皆需通過。' }
+      ]
+    };
+  }
+
+  function buildCurriculumFromPdfRows(rows, meta) {
+    const collegeCore = {
+      id: 'college-core',
+      title: '資訊學院 · 院核心',
+      required: 9,
+      kind: 'checklist',
+      note: '全院共同必修，每一門都要修過。',
+      courses: []
+    };
+    const deptCore = {
+      id: 'dept-core',
+      title: (meta.dept ? meta.dept.replace(/學系$/, '系') : '系') + ' · 系核心必修',
+      required: 39,
+      kind: 'checklist',
+      note: '系上共同必修，全部都要修過。',
+      courses: []
+    };
+    const majorGroup = {
+      id: 'major',
+      title: '主修學程（二選一）',
+      required: 27,
+      kind: 'choice',
+      note: '各專業學程擇一修滿 27 學分。',
+      offsetNote: '折抵方向會跟著主修走。實際折抵請以系辦認定為準。',
+      options: [
+        { id: 'smart', label: '智慧傳播應用學程', courses: [] },
+        { id: 'newmedia', label: '新媒體傳播內容學程', courses: [] }
+      ]
+    };
+    const generalGroup = {
+      id: 'general',
+      title: '校定必修 · 通識共同',
+      required: 30,
+      kind: 'credits',
+      note: '含共通英語文、專業英語文、中文、體育、服務學習、通識選修等。請從成績單加總後填入已通過學分。'
+    };
+    const freeGroup = {
+      id: 'free',
+      title: '自由選修 · 其他',
+      required: 23,
+      kind: 'credits',
+      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+    };
+
+    let currentTarget = collegeCore.courses;
+
+    rows.forEach(([cat, name, crStr]) => {
+      if (!name || !crStr) return;
+      const cr = parseInt(crStr, 10);
+      if (isNaN(cr) || cr <= 0) return;
+
+      if (name.includes('電腦繪圖') || (cat && cat.includes('系核心'))) {
+        currentTarget = deptCore.courses;
+      } else if (name.includes('新聞採訪與寫作') || (cat && cat.includes('智'))) {
+        currentTarget = majorGroup.options[0].courses;
+      } else if (name.includes('傳播敘事與劇本創作') || (cat && cat.includes('新'))) {
+        currentTarget = majorGroup.options[1].courses;
+      } else if (name.includes('資料蒐集與田野調查') || (cat && cat.includes('自'))) {
+        currentTarget = null;
+      }
+
+      if (currentTarget) {
+        if (!currentTarget.some(c => c.name === name)) {
+          currentTarget.push({ code: '', name, cr });
+        }
+      }
+    });
+
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
+    if (meta.totalRequired > assigned) {
+      freeGroup.required += (meta.totalRequired - assigned);
+    }
+
+    const curId = 'cur-' + (meta.dept || 'dept') + '-' + (meta.cohort || '').replace(/\D+/g, '');
+
+    return {
+      meta: {
+        id: curId,
+        school: meta.school,
+        dept: meta.dept,
+        cohort: meta.cohort,
+        totalRequired: meta.totalRequired
+      },
+      groups: resGroups,
+      thresholds: [
+        { id: 'chinese', label: '中文能力檢定', note: '可由指定課程或檢定通過抵免。' },
+        { id: 'english', label: '英文能力檢定', note: '共通英語文 / 外語能力檢定。' },
+        { id: 'info', label: '資訊能力檢定', note: '資訊應用能力相關檢定。' },
+        { id: 'service', label: '服務學習 / 勞作教育', note: '可由永續發展與實踐等課程抵免。' },
+        { id: 'pe', label: '體育（四學期）', note: '體育(一)～(四) 皆需通過。' }
+      ]
+    };
+  }
+
+  async function parseCurriculumODT(buffer) {
+    if (typeof JSZip === 'undefined') {
+      throw new Error('未載入 JSZip 解壓縮庫，無法解析 ODT 檔。');
+    }
+    const zip = await JSZip.loadAsync(buffer);
+    const contentFile = zip.file('content.xml');
+    if (!contentFile) {
+      throw new Error('ODT 檔案格式不符合（缺少 content.xml）');
+    }
+    const xml = await contentFile.async('text');
+
+    const pMatches = xml.match(/<text:p[^>]*>([\s\S]*?)<\/text:p>/g) || [];
+    const pTexts = pMatches.map(p => cleanStr(p.replace(/<[^>]+>/g, ''))).filter(Boolean);
+
+    let school = '亞洲大學';
+    let dept = '資訊傳播學系';
+    let cohort = '112 學年入學';
+    let totalRequired = 128;
+
+    pTexts.forEach(t => {
+      const sm = t.match(/([^\s;；]+大學)/);
+      if (sm) school = sm[1].replace(/^依據/, '');
+      const cm = t.match(/(\d{3})\s*學年度/);
+      if (cm) cohort = cm[1] + ' 學年入學';
+      const dm = t.match(/系別[：:]\s*([一-鿿]+(?:學系|系))/);
+      if (dm) dept = dm[1];
+      else {
+        const dm2 = t.match(/系別[：:]\s*([^\s;；畢業]+)/);
+        if (dm2) dept = dm2[1];
+      }
+      const tm = t.match(/畢業總學分[：:]\s*(\d+)/);
+      if (tm) totalRequired = parseInt(tm[1], 10);
+    });
+
+    const rowMatches = xml.match(/<table:table-row[^>]*>([\s\S]*?)<\/table:table-row>/g) || [];
+    const rows = [];
+    rowMatches.forEach(rXml => {
+      const cellMatches = rXml.match(/<table:table-cell[^>]*>([\s\S]*?)<\/table:table-cell>/g) || [];
+      const cells = cellMatches.map(cXml => cleanStr(cXml.replace(/<[^>]+>/g, '')));
+      while (cells.length && !cells[cells.length - 1]) cells.pop();
+      if (cells.length) rows.push(cells);
+    });
+
+    return buildCurriculumFromStructuredRows(rows, { school, dept, cohort, totalRequired });
+  }
+
+  function buildCurriculumFromPdfCourses(courses, meta) {
+    const collegeCore = {
+      id: 'college-core',
+      title: '資訊學院 · 院核心',
+      required: 9,
+      kind: 'checklist',
+      note: '全院共同必修，每一門都要修過。',
+      courses: []
+    };
+    const deptCore = {
+      id: 'dept-core',
+      title: (meta.dept ? meta.dept.replace(/學系$/, '系') : '系') + ' · 系核心必修',
+      required: 39,
+      kind: 'checklist',
+      note: '系上共同必修，全部都要修過。',
+      courses: []
+    };
+    const majorGroup = {
+      id: 'major',
+      title: '主修學程（二選一）',
+      required: 27,
+      kind: 'choice',
+      note: '各專業學程擇一修滿 27 學分。',
+      offsetNote: '折抵方向會跟著主修走。實際折抵請以系辦認定為準。',
+      options: [
+        { id: 'smart', label: '智慧傳播應用學程', courses: [] },
+        { id: 'newmedia', label: '新媒體傳播內容學程', courses: [] }
+      ]
+    };
+    const generalGroup = {
+      id: 'general',
+      title: '校定必修 · 通識共同',
+      required: 30,
+      kind: 'credits',
+      note: '含共通英語文、專業英語文、中文、體育、服務學習、通識選修等。請從成績單加總後填入已通過學分。'
+    };
+    const freeGroup = {
+      id: 'free',
+      title: '自由選修 · 其他',
+      required: 23,
+      kind: 'credits',
+      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+    };
+
+    let currentTarget = collegeCore.courses;
+
+    courses.forEach(c => {
+      const { name, cr } = c;
+      if (name.includes('電腦繪圖')) {
+        currentTarget = deptCore.courses;
+      } else if (name.includes('新聞採訪與寫作')) {
+        currentTarget = majorGroup.options[0].courses;
+      } else if (name.includes('傳播敘事與劇本創作')) {
+        currentTarget = majorGroup.options[1].courses;
+      } else if (name.includes('資料蒐集與田野調查')) {
+        currentTarget = null;
+      }
+
+      if (currentTarget) {
+        if (!currentTarget.some(x => x.name === name)) {
+          currentTarget.push({ code: '', name, cr });
+        }
+      }
+    });
+
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
+    if (meta.totalRequired > assigned) {
+      freeGroup.required += (meta.totalRequired - assigned);
+    }
+
+    const curId = 'cur-' + (meta.dept || 'dept') + '-' + (meta.cohort || '').replace(/\D+/g, '');
+
+    return {
+      meta: {
+        id: curId,
+        school: meta.school,
+        dept: meta.dept,
+        cohort: meta.cohort,
+        totalRequired: meta.totalRequired
+      },
+      groups: resGroups,
+      thresholds: [
+        { id: 'chinese', label: '中文能力檢定', note: '可由指定課程或檢定通過抵免。' },
+        { id: 'english', label: '英文能力檢定', note: '共通英語文 / 外語能力檢定。' },
+        { id: 'info', label: '資訊能力檢定', note: '資訊應用能力相關檢定。' },
+        { id: 'service', label: '服務學習 / 勞作教育', note: '可由永續發展與實踐等課程抵免。' },
+        { id: 'pe', label: '體育（四學期）', note: '體育(一)～(四) 皆需通過。' }
+      ]
+    };
+  }
+
+  async function parseCurriculumPDF(buffer) {
+    if (typeof pdfjsLib === 'undefined') {
+      throw new Error('未載入 PDF.js 庫，無法解析 PDF 檔。');
+    }
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+
+    let school = '亞洲大學';
+    let dept = '資訊傳播學系';
+    let cohort = '112 學年入學';
+    let totalRequired = 128;
+
+    // 從第 1 頁讀取中繼資訊
+    const p1 = await doc.getPage(1);
+    const c1 = await p1.getTextContent();
+    const p1Text = c1.items.map(it => it.str).join(' ');
+
+    const sm = p1Text.match(/([^\s;；]+大學)/);
+    if (sm) school = sm[1].replace(/^依據/, '');
+    const cm = p1Text.match(/(\d{3})\s*學年度/);
+    if (cm) cohort = cm[1] + ' 學年入學';
+    const dm = p1Text.match(/系別[：:]\s*([一-鿿]+(?:學系|系))/);
+    if (dm) dept = dm[1];
+    const tm = p1Text.match(/畢業總學分[：:]\s*(\d+)/);
+    if (tm) totalRequired = parseInt(tm[1], 10);
+
+    const validCourses = [];
+
+    for (let p = 2; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+
+      const nameItems = [];
+      const crItems = [];
+
+      content.items.forEach(it => {
+        const str = it.str.trim();
+        if (!str) return;
+        const x = it.transform[4];
+        const y = it.transform[5];
+
+        if (x >= 65 && x < 215) {
+          nameItems.push({ str, x, y });
+        } else if (x >= 380 && x <= 405 && /^[1-6]$/.test(str)) {
+          crItems.push({ str, x, y, cr: parseInt(str, 10) });
+        }
+      });
+
+      const courseLines = [];
+      nameItems.forEach(it => {
+        let line = courseLines.find(cl => Math.abs(cl.y - it.y) <= 4);
+        if (!line) {
+          line = { y: it.y, items: [] };
+          courseLines.push(line);
+        }
+        line.items.push(it);
+      });
+
+      courseLines.forEach(cl => {
+        cl.items.sort((a, b) => a.x - b.x);
+        cl.name = cl.items.map(it => it.str).join('').replace(/^[*＊\s]+/, '').trim();
+        const matchedCr = crItems.find(cr => Math.abs(cr.y - cl.y) <= 4);
+        cl.cr = matchedCr ? matchedCr.cr : 0;
+      });
+
+      const pageCourses = courseLines.filter(cl => cl.name && cl.cr > 0 && cl.name !== '科目名稱');
+      pageCourses.sort((a, b) => b.y - a.y);
+
+      pageCourses.forEach(c => {
+        // Page 3: 忽略他系專長學程表格 (y < 450)
+        if (p === 3 && c.y < 450) return;
+        validCourses.push(c);
+      });
+    }
+
+    return buildCurriculumFromPdfCourses(validCourses, { school, dept, cohort, totalRequired });
+  }
+
+  let handleCurriculumFile = null;
+
   function setupCurriculumPanel() {
     const panel = $('#cur-panel');
     if (!panel) return;
@@ -932,16 +2190,108 @@
       setTimeout(() => location.reload(), 500);
     };
 
-    $('#cur-file').addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
+    handleCurriculumFile = async (f) => {
       if (!f) return;
-      const fr = new FileReader();
-      fr.onload = () => {
-        try { apply(JSON.parse(fr.result)); }
-        catch (err) { say('這個檔案不是有效的 JSON：' + err.message, true); }
-      };
-      fr.readAsText(f, 'utf-8');
-    });
+      say('正在解析課綱檔案（' + f.name + '）…');
+      const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
+      try {
+        let cur = null;
+        if (ext === '.odt' || (f.type && f.type.includes('opendocument'))) {
+          const buf = await f.arrayBuffer();
+          cur = await parseCurriculumODT(buf);
+        } else if (ext === '.pdf' || (f.type && f.type === 'application/pdf')) {
+          const buf = await f.arrayBuffer();
+          cur = await parseCurriculumPDF(buf);
+        } else if (ext === '.json' || (f.type && f.type.includes('json'))) {
+          const txt = await f.text();
+          cur = JSON.parse(txt);
+        } else {
+          try {
+            const txt = await f.text();
+            cur = JSON.parse(txt);
+          } catch (_) {
+            throw new Error('不支援的檔案格式，請上傳 .pdf、.odt 或 .json 課綱檔案。');
+          }
+        }
+
+        const errs = validateCurriculum(cur);
+        const counts = cur.groups.map((g) => {
+          const n = g.kind === 'choice'
+            ? g.options.reduce((s, o) => s + o.courses.length, 0)
+            : (g.courses ? g.courses.length : 0);
+          return g.title + '：' + (g.kind === 'credits' ? '填學分' : n + ' 門') + '／應修 ' + g.required + ' 學分';
+        });
+
+        if (errs.length) {
+          say(el('div', {},
+            el('b', {}, '檔案解析完成，但課綱內容檢核未通過：'),
+            el('ul', { style: 'margin:.4rem 0 .4rem 1.1rem' }, errs.map((e) => el('li', {}, e))),
+            el('div', {}, '目前解析到 → ' + (counts.join('；') || '（無資料）'))), true);
+          return;
+        }
+
+        $('#cur-text').value = JSON.stringify(cur, null, 2);
+
+        const m = cur.meta || {};
+        const metaStr = [m.school, m.dept, m.cohort, m.totalRequired ? (m.totalRequired + ' 學分') : ''].filter(Boolean).join(' · ');
+
+        const applyBtn = el('button', { class: 'btn btn--primary', style: 'margin-top:.6rem' },
+          el('svg', { class: 'icon' }, el('use', { href: '#i-check' })),
+          ' 立即套用此課綱'
+        );
+        applyBtn.addEventListener('click', () => apply(cur));
+
+        say(el('div', {},
+          el('b', {}, '🎉 成功解析課綱：' + (metaStr || f.name)),
+          el('div', { style: 'margin-top:.3rem; font-size:var(--fs-xs); color:var(--ink-2); line-height:1.6;' },
+            counts.join(' ｜ ')
+          ),
+          applyBtn
+        ));
+      } catch (err) {
+        say('課綱解析失敗：' + (err && err.message ? err.message : String(err)), true);
+      }
+    };
+
+    // 課綱檔案選取與拖曳上傳
+    const curDropzone = $('#cur-dropzone');
+    const curFileInput = $('#cur-file');
+
+    if (curDropzone && curFileInput) {
+      curDropzone.addEventListener('click', () => curFileInput.click());
+      curDropzone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          curFileInput.click();
+        }
+      });
+      curFileInput.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) handleCurriculumFile(f);
+      });
+
+      ['dragenter', 'dragover'].forEach((eventName) => {
+        curDropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          curDropzone.classList.add('is-dragover');
+        });
+      });
+
+      ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+        curDropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          curDropzone.classList.remove('is-dragover');
+        });
+      });
+
+      curDropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const f = dt && dt.files && dt.files[0];
+        if (f) handleCurriculumFile(f);
+      });
+    }
 
     $('#cur-import-json').addEventListener('click', () => {
       const t = $('#cur-text').value.trim();
@@ -1028,8 +2378,16 @@
     $('#btn-import-toggle').addEventListener('click', () => {
       if (importCard.getAttribute('data-open') !== 'true') $('#import-head').click();
       importCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-      setTimeout(() => $('#import-text').focus(), 300);
     });
+    const btnRoadmap = $('#btn-roadmap-toggle');
+    if (btnRoadmap) {
+      btnRoadmap.addEventListener('click', () => {
+        const rSection = $('#roadmap-section');
+        if (rSection) {
+          rSection.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+        }
+      });
+    }
     $('#btn-import-run').addEventListener('click', runImport);
     $('#btn-print').addEventListener('click', () => window.print());
     $('#btn-reset').addEventListener('click', () => {
@@ -1037,6 +2395,72 @@
       try { localStorage.removeItem(STORE_KEY); } catch (e) {}
       location.reload();
     });
+
+    // Excel 檔案選取與拖曳上傳
+    const dropzone = $('#excel-dropzone');
+    const fileInput = $('#excel-file-input');
+
+    if (dropzone && fileInput) {
+      dropzone.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          fileInput.click();
+        }
+      });
+      fileInput.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) handleExcelFile(f);
+      });
+
+      ['dragenter', 'dragover'].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('is-dragover');
+        });
+      });
+
+      ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('is-dragover');
+        });
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const f = dt && dt.files && dt.files[0];
+        if (f) handleExcelFile(f);
+      });
+
+      // 全頁面拖曳支援：若使用者直接將 Excel 或課綱（.odt / .pdf）拖入視窗任何位置
+      window.addEventListener('dragover', (e) => {
+        e.preventDefault();
+      });
+      window.addEventListener('drop', (e) => {
+        if (e.target.closest('#excel-dropzone') || e.target.closest('#cur-dropzone')) return;
+        const dt = e.dataTransfer;
+        const f = dt && dt.files && dt.files[0];
+        if (!f) return;
+        const name = f.name.toLowerCase();
+        if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+          e.preventDefault();
+          handleExcelFile(f);
+        } else if (name.endsWith('.odt') || name.endsWith('.pdf')) {
+          e.preventDefault();
+          const curCard = $('#cur-panel');
+          if (curCard && curCard.getAttribute('data-open') !== 'true') {
+            $('#cur-panel-head').click();
+          }
+          if (curCard) curCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+          if (typeof handleCurriculumFile === 'function') {
+            handleCurriculumFile(f);
+          }
+        }
+      });
+    }
 
     // 頁首即時小結：點一下回到「畢業結論」
     const barV = $('#appbar-verdict');
