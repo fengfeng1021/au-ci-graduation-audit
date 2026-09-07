@@ -59,7 +59,8 @@
     try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { return false; }
   }
 
-  const userCurricula = readJSON(REG_KEY, {});
+  const userCurriculaRaw = readJSON(REG_KEY, {});
+  const userCurricula = (userCurriculaRaw && typeof userCurriculaRaw === 'object' && !Array.isArray(userCurriculaRaw)) ? userCurriculaRaw : {};
   const registry = Object.assign({}, window.CURRICULA || {}, userCurricula);
 
   function pickCurriculum() {
@@ -157,17 +158,26 @@
      ===================================================================== */
   const state = migrate(readJSON(STORE_KEY, null));
 
+  function isObj(v) {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+  }
+
   function migrate(saved) {
     const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {}, offsetCount: 2, passedCourses: [], student: null };
     const s = Object.assign(base, saved || {});
-    s.checked = s.checked || {};
-    s.thresholds = s.thresholds || {};
-    s.choice = s.choice || {};
-    s.offset = s.offset || {};
-    s.credits = s.credits || {};
-    s.offsetCount = s.offsetCount != null ? s.offsetCount : 2;
+    // 舊版或損毀的本機資料可能把物件欄位存成 boolean / 字串 / 數字；
+    // `x || {}` 擋不住 truthy 的 primitive，strict mode 下寫屬性會直接爆炸
+    //（Cannot create property 'major' on boolean 'true' 導致整頁白屏），故嚴格檢查。
+    // 注意：舊欄位搬移一律讀原始 saved，不受下方清理影響。
+    if (!isObj(s.checked)) s.checked = {};
+    if (!isObj(s.thresholds)) s.thresholds = {};
+    if (!isObj(s.choice)) s.choice = {};
+    if (!isObj(s.offset)) s.offset = {};
+    if (!isObj(s.credits)) s.credits = {};
+    if (typeof s.offsetCount !== 'number' || !(s.offsetCount >= 0)) s.offsetCount = 2;
     s.passedCourses = Array.isArray(s.passedCourses) ? s.passedCourses : [];
-    s.student = s.student || null;
+    if (s.student != null && !isObj(s.student)) s.student = null;
+    else if (s.student == null) s.student = null;
 
     // 跨課綱共享學生身分與已修課程
     const shared = readJSON('au-audit-shared-student-v1', null);
