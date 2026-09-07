@@ -527,18 +527,51 @@
   function passedCourseKey(c) {
     return ((c.code || '').toUpperCase() + '||' + norm(c.name || ''));
   }
+  function genedGroupId() {
+    const g = GROUPS.find((x) => x.id === 'gened' || /博雅/.test(x.title || ''));
+    return g ? g.id : '';
+  }
   function generalGroupId() {
-    const g = GROUPS.find((x) => x.id === 'general' || /通識|校定/.test(x.title || ''));
+    // 注意：「博雅通識」標題也含「通識」二字，必須排除，否則會搶走 gened 的課
+    const g = GROUPS.find((x) => x.id === 'general' || /校定/.test(x.title || '') ||
+      (/通識/.test(x.title || '') && !/博雅/.test(x.title || '')));
     return g ? g.id : '';
   }
   function freeGroupId() {
     const g = GROUPS.find((x) => x.id === 'free' || /自由/.test(x.title || ''));
     return g ? g.id : '';
   }
-  /* 該筆成績「依規則」本來屬於哪個學分桶（改列前的歸屬） */
+  /* 該筆成績「依規則」本來屬於哪個學分桶（改列前的歸屬）。
+     有博雅桶的課綱才把博雅分流出去；舊課綱無此桶時走原本規則，行為完全不變。 */
   function autoBucketId(c) {
+    const gened = genedGroupId();
+    if (gened && isGenedCourseRecord(c)) return gened;
     if (isGeneralCourseRecord(c)) return generalGroupId();
     return freeGroupId();
+  }
+  /* 未對應必修/學程的及格科目，依「有效歸屬」分桶加總（校定/博雅/自由）。
+     回傳 { sums: {gid: 學分}, lists: {gid: [課程]} } */
+  function bucketSums(passedList) {
+    const idx = allCourses();
+    const sums = {}, lists = {};
+    (passedList || []).forEach((c) => {
+      if (!c || !c.name) return;
+      const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
+      if (matchCourse(nline, idx)) return;
+      const b = autoBucketId(c);
+      if (!b) return;
+      sums[b] = (sums[b] || 0) + (c.cr || 0);
+      (lists[b] = lists[b] || []).push(c);
+    });
+    return { sums, lists };
+  }
+  /* 已知學分桶全量重算寫回（含 0 歸零，語意等同重新匯入） */
+  function writeBucketCredits(sums) {
+    [genedGroupId(), generalGroupId(), freeGroupId()].forEach((bid) => {
+      if (!bid) return;
+      const g = GROUPS.find((x) => x.id === bid);
+      if (g && g.kind === 'credits') state.credits[g.id] = Math.round(sums[bid] || 0);
+    });
   }
   function isCreditsGroupId(gid) {
     const g = GROUPS.find((x) => x.id === gid);
@@ -598,16 +631,22 @@
     return byBucket;
   }
 
-  function isCreditBreakdownGroup(g, kind) {
-    if (!g) return false;
-    if (kind === 'general') return g.id === 'general' || /通識|校定/.test(g.title || '');
-    return g.id === 'free' || /自由/.test(g.title || '');
+  /* 學分卡屬於哪個明細桶（校定 / 他系 / 自由；未知自訂分類不列明細） */
+  function bucketKeyOfGroup(g) {
+    if (!g || g.kind !== 'credits') return '';
+    const title = g.title || '';
+    if (g.id === 'external' || /他系|跨領域/.test(title)) return 'external';
+    if (g.id === 'general' || /校定/.test(title) ||
+      (/通識/.test(title) && !/博雅/.test(title))) return 'general';
+    if (g.id === 'free' || /自由/.test(title)) return 'free';
+    return '';
   }
 
   /* 某一筆成績的「改列到…」選單（原生 select，各分類動態產生） */
-  function moveSelectFor(c, autoGid) {
+  function moveSelectFor(c) {
     const key = passedCourseKey(c);
     const cur = (isObj(state.reassign) && state.reassign[key]) || '';
+    const autoGid = autoBucketId(c);
     const sel = el('select', {
       class: 'move-select', title: '將「' + c.name + '」改列到別的分類',
       'aria-label': '將「' + c.name + '」改列到別的分類',
@@ -637,11 +676,7 @@
       const gid = mount.getAttribute('data-breakdown');
       const g = GROUPS.find((x) => x.id === gid);
       mount.innerHTML = '';
-      if (!g || g.kind !== 'credits') return;
-      const isGen = isCreditBreakdownGroup(g, 'general');
-      const isFree = isCreditBreakdownGroup(g, 'free');
-      if (!isGen && !isFree) return;
-      const autoGid = isGen ? generalGroupId() : freeGroupId();
+      if (!bucketKeyOfGroup(g)) return;
       const list = byBucket[gid] || [];
       const entered = state.credits[gid] || 0;
 
@@ -681,7 +716,7 @@
               el('span', { class: 'credit-course__name' }, c.name),
               badge),
             meta ? el('span', { class: 'credit-course__meta tnum' }, meta) : null),
-          el('div', { class: 'credit-course__side' }, moveSelectFor(c, autoGid || gid))));
+          el('div', { class: 'credit-course__side' }, moveSelectFor(c))));
       });
       mount.append(box);
       if (entered !== countedSum) {
@@ -760,8 +795,7 @@
     if (g.kind === 'credits') {
       // 上方輸入是匯入快照；手動改列會在此加減（搬出扣、搬入加），試算以實際採計為準
       let v = state.credits[g.id] || 0;
-      const genId = generalGroupId(), freeId = freeGroupId();
-      if (g.id === genId || g.id === freeId) {
+      if (bucketKeyOfGroup(g)) {
         (state.passedCourses || []).forEach((c) => {
           if (!c || !c.name) return;
           const auto = autoBucketId(c);
@@ -1029,8 +1063,8 @@
         { code: 'EP300358', name: '媒體數據分析', cr: 3, cat: 'dept' },
         { code: '', name: '科技英文', cr: 2, cat: 'general' },
         { code: '', name: '法律與生活', cr: 2, cat: 'general' },
-        { code: '', name: '資料蒐集與田野調查', cr: 2, cat: 'dept' },
-        { code: '', name: '進階採訪實務', cr: 2, cat: 'dept' },
+        { code: '', name: '資料蒐集與田野調查', cr: 2, cat: 'free' },
+        { code: '', name: '進階採訪實務', cr: 2, cat: 'free' },
         { code: '', name: '體育(三)', cr: 0, cat: 'general' },
       ],
     },
@@ -1053,7 +1087,7 @@
         { code: 'EP300359', name: '3D與虛擬攝影棚應用', cr: 3, cat: 'dept' },
         { code: 'EP300054', name: '傳播理論', cr: 3, cat: 'dept' },
         { code: '', name: '博雅通識(二)', cr: 2, cat: 'general' },
-        { code: '', name: '廣告企劃實務', cr: 2, cat: 'dept' },
+        { code: '', name: '廣告企劃實務', cr: 2, cat: 'free' },
       ],
     },
     {
@@ -1062,8 +1096,8 @@
       courses: [
         { code: 'EP300176', name: '畢業專題(一)', cr: 1, cat: 'college' },
         { code: '', name: '博雅通識(三)', cr: 2, cat: 'general' },
-        { code: '', name: '新聞播報與轉播技巧', cr: 2, cat: 'dept' },
-        { code: '', name: '專業實習(一)', cr: 3, cat: 'dept' },
+        { code: '', name: '新聞播報與轉播技巧', cr: 2, cat: 'free' },
+        { code: '', name: '專業實習(一)', cr: 3, cat: 'free' },
       ],
     },
     {
@@ -1071,8 +1105,8 @@
       semLabel: '大四上（115-1）',
       courses: [
         { code: '', name: '畢業專題(二)', cr: 1, cat: 'college' },
-        { code: '', name: '專業實習(二)', cr: 3, cat: 'dept' },
-        { code: '', name: '自由選修', cr: 2, cat: 'free' },
+        { code: '', name: '專業實習(二)', cr: 3, cat: 'free' },
+        { code: '', name: '他系專長選修', cr: 2, cat: 'external' },
       ],
     },
     {
@@ -1081,7 +1115,7 @@
       courses: [
         { code: '', name: '資訊研討', cr: 1, cat: 'college' },
         { code: '', name: '畢業展演', cr: 1, cat: 'dept' },
-        { code: '', name: '自由選修(補足學分)', cr: 2, cat: 'free' },
+        { code: '', name: '他系專長／跨領域（補足學分）', cr: 2, cat: 'external' },
       ],
     },
   ];
@@ -1097,14 +1131,14 @@
       '113-2': [
         { code: 'EP300347', name: '影音製作技術', cr: 3, cat: 'major' },
         { code: 'EP300369', name: '影音傳播資料庫', cr: 3, cat: 'major' },
-        { code: '', name: '跨領域自由選修', cr: 3, cat: 'free' },
+        { code: '', name: '跨領域自由選修', cr: 3, cat: 'external' },
       ],
       '114-1': [
         { code: 'EP300271', name: '製片實務', cr: 3, cat: 'major' },
         { code: '', name: '影音虛實整合', cr: 3, cat: 'major' },
         { code: 'EP300371', name: '互動裝置媒體應用', cr: 2, cat: 'major' },
         { code: 'EP300372', name: '影音特效實務', cr: 3, cat: 'major' },
-        { code: '', name: '專業自由選修', cr: 2, cat: 'free' },
+        { code: '', name: '專業自由選修', cr: 2, cat: 'external' },
       ],
       '114-2': [
         { code: 'EP300373', name: '劇情短片製作', cr: 3, cat: 'major' },
@@ -1130,7 +1164,7 @@
       '114-1': [
         { code: '', name: '網路訊息檢索', cr: 3, cat: 'major' },
         { code: '', name: '知識性節目製作', cr: 3, cat: 'major' },
-        { code: '', name: '專業自由選修', cr: 2, cat: 'free' },
+        { code: '', name: '專業自由選修', cr: 2, cat: 'external' },
       ],
       '114-2': [
         { code: '', name: '媒體科技實務選修', cr: 3, cat: 'major' },
@@ -1201,16 +1235,17 @@
       }
     }
 
-    // 4. 博雅通識與自由選修（依已通過學分認定）
+    // 4. 博雅通識與自由選修（依已通過學分認定；博雅含在校定 30 內）
     if (/博雅通識/.test(cName)) {
-      const genGroup = GROUPS.find(g => g.id === 'general' || /通識/.test(g.title));
+      const genGroup = GROUPS.find(g => g.id === 'general' || /通識|校定/.test(g.title));
       const genCr = (genGroup && groupCredits(genGroup)) || (state.credits && state.credits.general) || 0;
       if (genCr >= 24) return { completed: true, reason: '通識達標' };
     }
     if (/自由選修/.test(cName)) {
       const freeGroup = GROUPS.find(g => g.id === 'free' || /自由/.test(g.title));
       const freeCr = (freeGroup && groupCredits(freeGroup)) || (state.credits && state.credits.free) || 0;
-      if (freeCr >= 20) return { completed: true, reason: '選修達標' };
+      const freeNeed = (freeGroup && freeGroup.required) || 20;
+      if (freeCr >= freeNeed) return { completed: true, reason: '選修達標' };
     }
 
     return { completed: false, reason: '' };
@@ -1414,6 +1449,7 @@
       case 'major': return '學程核心';
       case 'general': return '通識共同';
       case 'free': return '自由選修';
+      case 'external': return '他系專長';
       default: return '選修';
     }
   }
@@ -1426,14 +1462,16 @@
     .replace(/[　 ]/g, ' ');
   const norm = (s) => toHalf(s).replace(/\s+/g, '').toLowerCase();
 
-  /* 成績單一筆是否屬於「通識共同 / 校定必修」（否則歸自由選修）。
+  /* 成績單一筆是否屬於「校定必修」（語文 16＋核心 8＋博雅 6；否則歸自由選修）。
      Excel 匯入、跨課綱比對、學分明細三處共用，規則必須一致。 */
   function isGeneralCourseRecord(c) {
     if (!c) return false;
     if (c.opt && c.opt.includes('通識')) return true;
     if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
     const n = norm(c.name);
-    return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
+    // 官方課綱校定必修課程名關鍵字（含博雅；博雅 6 學分含在校定 30 內）。
+    // 人文/社會/自然/生活等單字太常見，刻意不用，避免誤把自由選修吸進校定。
+    return /共通英語文|共通專業英語文|醫護英文|科技英文|商管英文|設計英文|簡報英文|文學賞析|文學與生活|中文|法律與生活|智慧財產|愛情|性別|設計思考|美學素養|資訊科技概論|資訊與科技|程式設計與智慧應用|歷史與文化|永續發展|服務學習|體育|健康與生活|博雅/.test(n);
   }
 
   /* =====================================================================
@@ -1866,7 +1904,7 @@
     const res = $('#import-result');
     if (res) {
       res.className = 'import__result is-ok';
-      res.textContent = `成功匯入！已勾選 ${matchedKeys.size} 門核心與學程課程，並自動加總 通識 ${Math.round(generalCr)} 學分、自由選修 ${Math.round(freeCr)} 學分。`;
+      res.textContent = `成功匯入！已勾選 ${matchedKeys.size} 門核心與學程課程，並自動加總 校定必修 ${Math.round(generalCr)} 學分、自由選修 ${Math.round(freeCr)} 學分。`;
     }
 
     const detail = $('#import-detail');
@@ -1882,8 +1920,9 @@
     if (generalList.length || freeList.length) {
       detail.append(el('div', { class: 'import__list import__list--credits' },
         el('b', {}, '已自動帶入學分：'),
-        `通識共同 ${Math.round(generalCr)} 學分（${generalList.map(c => c.name).join('、')}）；` +
-        `自由選修 ${Math.round(freeCr)} 學分（${freeList.map(c => c.name + (c.cr ? '(' + c.cr + ')' : '')).join('、')}）`));
+        `校定必修 ${Math.round(generalCr)} 學分（含博雅通識；${generalList.map(c => c.name).join('、')}）；` +
+        `自由選修 ${Math.round(freeCr)} 學分（${freeList.map(c => c.name + (c.cr ? '(' + c.cr + ')' : '')).join('、')}）`,
+        el('span', { class: 'import__hint' }, '（他系專長／跨領域的課暫列在自由選修，請到下方「自由選修」明細用選單逐門改列到「他系專長／跨領域學程」）')));
     }
 
     if (skippedCourses.length) {
@@ -2131,9 +2170,16 @@
     const freeGroup = {
       id: 'free',
       title: '自由選修 · 其他',
-      required: 23,
+      required: 8,
       kind: 'credits',
-      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+      note: '不足 128 學分時補足（註五）。超修的學程課程、系上選修都算在這裡。'
+    };
+    const externalGroup = {
+      id: 'external',
+      title: '他系專長／跨領域學程',
+      required: 15,
+      kind: 'credits',
+      note: '主修之外另需他系專長、跨領域學程或次專長（約 15 學分）。請填入已通過學分。'
     };
 
     let currentGroup = null;
@@ -2157,6 +2203,10 @@
         currentOption = null;
       } else if (/自由選修|分流實習/.test(line)) {
         currentGroup = freeGroup;
+        currentOption = null;
+      } else if (/他系/.test(line) && /專長|學程/.test(line)) {
+        // 「他系專長學程」是給非本系學生修的，不屬於本系課綱：斷開收集，避免課程漏進上一個學程
+        currentGroup = null;
         currentOption = null;
       }
 
@@ -2199,7 +2249,7 @@
       }
     });
 
-    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, externalGroup, freeGroup];
     const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
     if (meta.totalRequired > assigned) {
       freeGroup.required += (meta.totalRequired - assigned);
@@ -2265,9 +2315,16 @@
     const freeGroup = {
       id: 'free',
       title: '自由選修 · 其他',
-      required: 23,
+      required: 8,
       kind: 'credits',
-      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+      note: '不足 128 學分時補足（註五）。超修的學程課程、系上選修都算在這裡。'
+    };
+    const externalGroup = {
+      id: 'external',
+      title: '他系專長／跨領域學程',
+      required: 15,
+      kind: 'credits',
+      note: '主修之外另需他系專長、跨領域學程或次專長（約 15 學分）。請填入已通過學分。'
     };
 
     let currentTarget = collegeCore.courses;
@@ -2294,7 +2351,7 @@
       }
     });
 
-    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, externalGroup, freeGroup];
     const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
     if (meta.totalRequired > assigned) {
       freeGroup.required += (meta.totalRequired - assigned);
@@ -2406,9 +2463,16 @@
     const freeGroup = {
       id: 'free',
       title: '自由選修 · 其他',
-      required: 23,
+      required: 8,
       kind: 'credits',
-      note: '補足畢業總學分。超修的學程課程、系上選修都算在這裡。'
+      note: '不足 128 學分時補足（註五）。超修的學程課程、系上選修都算在這裡。'
+    };
+    const externalGroup = {
+      id: 'external',
+      title: '他系專長／跨領域學程',
+      required: 15,
+      kind: 'credits',
+      note: '主修之外另需他系專長、跨領域學程或次專長（約 15 學分）。請填入已通過學分。'
     };
 
     let currentTarget = collegeCore.courses;
@@ -2432,7 +2496,7 @@
       }
     });
 
-    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, freeGroup];
+    const resGroups = [collegeCore, deptCore, majorGroup, generalGroup, externalGroup, freeGroup];
     const assigned = resGroups.reduce((s, g) => s + (g.required || 0), 0);
     if (meta.totalRequired > assigned) {
       freeGroup.required += (meta.totalRequired - assigned);
