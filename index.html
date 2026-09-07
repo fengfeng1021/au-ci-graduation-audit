@@ -86,12 +86,12 @@
     <button class="btn btn--ghost" id="btn-import-toggle">
       <svg class="icon"><use href="#i-sheet"/></svg> 成績單面板
     </button>
-    <label class="btn btn--primary" for="excel-file-input" id="btn-toolbar-excel" style="cursor:pointer;" title="點此直接選擇成績單 Excel 檔案進行試算">
+    <button type="button" class="btn btn--primary" id="btn-toolbar-excel" title="點此直接選擇成績單 Excel 檔案進行試算">
       <svg class="icon"><use href="#i-upload"/></svg> 選擇成績單 Excel
-    </label>
-    <label class="btn btn--secondary" for="cur-file" id="btn-toolbar-cur" style="cursor:pointer;" title="點此直接選擇課綱檔案（支援學校匯出之 PDF、ODT、JSON）">
+    </button>
+    <button type="button" class="btn btn--secondary" id="btn-toolbar-cur" title="點此直接選擇課綱檔案（支援學校匯出之 PDF、ODT、JSON）">
       <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱 (PDF/ODT)
-    </label>
+    </button>
     <button class="btn btn--ghost" id="btn-roadmap-toggle">
       <svg class="icon"><use href="#i-check"/></svg> 4 年 8 學期建議修課
     </button>
@@ -128,9 +128,8 @@
     </button>
     <div class="import__body" id="import-body">
       <div class="import__body-inner">
-        <!-- Excel 拖曳上傳區（使用原生 label 關聯 input，點擊任何位置皆能 100% 彈出檔案視窗） -->
-        <label class="dropzone" id="excel-dropzone" for="excel-file-input" tabindex="0" role="button" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
-          <input type="file" id="excel-file-input" accept=".xlsx,.xls,.pdf,.odt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,application/vnd.oasis.opendocument.text,application/json" class="sr-only-input" />
+        <!-- Excel 拖曳上傳區（點擊或拖曳至任何位置皆能 100% 彈出檔案視窗或讀取） -->
+        <div class="dropzone" id="excel-dropzone" tabindex="0" role="button" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -141,7 +140,7 @@
           <span class="btn btn--primary btn--sm dropzone__btn">
             <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇 Excel 檔案
           </span>
-        </label>
+        </div>
 
         <div class="import__result-bar" id="import-result-bar" hidden>
           <div class="student-badge" id="student-badge"></div>
@@ -221,8 +220,7 @@
         </div>
 
         <!-- 課綱拖曳上傳區 (支援 PDF / ODT / JSON) -->
-        <label class="dropzone" id="cur-dropzone" for="cur-file" tabindex="0" role="button" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
-          <input type="file" id="cur-file" accept=".pdf,.odt,.json,.xlsx,.xls,application/pdf,application/vnd.oasis.opendocument.text,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="sr-only-input" />
+        <div class="dropzone" id="cur-dropzone" tabindex="0" role="button" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -233,12 +231,12 @@
           <span class="btn btn--primary btn--sm dropzone__btn">
             <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇課綱檔案
           </span>
-        </label>
+        </div>
 
         <div class="cur-actions">
-          <label class="btn btn--ghost" for="cur-file" style="cursor:pointer;" title="點此選擇課綱檔案（支援 PDF、ODT、JSON）">
+          <button type="button" class="btn btn--ghost" id="btn-cur-file" title="點此選擇課綱檔案（支援 PDF、ODT、JSON）">
             <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱檔案
-          </label>
+          </button>
           <button class="btn btn--quiet" id="cur-export">
             <svg class="icon"><use href="#i-download"/></svg> 匯出目前課綱（當範本改）
           </button>
@@ -314,8 +312,14 @@
     } catch (e) {}
   }
 </script>
-<script src="curriculum.js?v=20260907v5"></script>
-<script src="app.js?v=20260907v5"></script>
+<script src="curriculum.js?v=20260907v6"></script>
+<script src="app.js?v=20260907v6"></script>
+
+<!-- 全域獨立隱藏檔案輸入框（置於最外層，不受任何折疊面板影響，點擊按鈕 100% 呼叫） -->
+<div class="sr-only-inputs-wrap" style="position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
+  <input type="file" id="excel-file-input" accept=".xlsx,.xls,.pdf,.odt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,application/vnd.oasis.opendocument.text,application/json" tabindex="-1" />
+  <input type="file" id="cur-file" accept=".pdf,.odt,.json,.xlsx,.xls,application/pdf,application/vnd.oasis.opendocument.text,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" tabindex="-1" />
+</div>
 
 <!-- 全螢幕拖曳上傳提示遮罩 -->
 <div class="window-drop-overlay" id="window-drop-overlay" aria-hidden="true">

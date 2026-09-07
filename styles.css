@@ -908,12 +908,14 @@ svg { display: block; }
   align-items: center;
   justify-content: center;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: none !important;
   transition: opacity 0.2s ease;
+}
+.window-drop-overlay * {
+  pointer-events: none !important;
 }
 .window-drop-overlay.is-active {
   opacity: 1;
-  pointer-events: auto;
 }
 .window-drop-overlay__box {
   background: var(--paper);

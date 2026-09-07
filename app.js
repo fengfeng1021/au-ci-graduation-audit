@@ -2240,6 +2240,10 @@
   function bindDropzone(zone, input, onFile) {
     if (!zone || !input) return;
 
+    zone.addEventListener('click', () => {
+      input.click();
+    });
+
     zone.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -2247,10 +2251,13 @@
       }
     });
 
+    input.addEventListener('click', () => {
+      input.value = '';
+    });
+
     input.addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
       if (f) onFile(f);
-      e.target.value = '';
     });
 
     ['dragenter', 'dragover'].forEach((eventName) => {
@@ -2273,6 +2280,8 @@
       e.preventDefault();
       e.stopPropagation();
       zone.classList.remove('is-dragover');
+      const overlay = $('#window-drop-overlay');
+      if (overlay) overlay.classList.remove('is-active');
       const dt = e.dataTransfer;
       const f = dt && dt.files && dt.files[0];
       if (f) onFile(f);
@@ -2595,6 +2604,33 @@
     if (curBody) { curBody.style.height = '0px'; curBody.style.overflow = 'hidden'; }
 
     // Toolbar
+    const btnExcel = $('#btn-toolbar-excel');
+    if (btnExcel) {
+      btnExcel.addEventListener('click', (e) => {
+        e.preventDefault();
+        const input = $('#excel-file-input');
+        if (input) input.click();
+      });
+    }
+
+    const btnCur = $('#btn-toolbar-cur');
+    if (btnCur) {
+      btnCur.addEventListener('click', (e) => {
+        e.preventDefault();
+        const input = $('#cur-file');
+        if (input) input.click();
+      });
+    }
+
+    const btnCurFile = $('#btn-cur-file');
+    if (btnCurFile) {
+      btnCurFile.addEventListener('click', (e) => {
+        e.preventDefault();
+        const input = $('#cur-file');
+        if (input) input.click();
+      });
+    }
+
     $('#btn-import-toggle').addEventListener('click', () => {
       if (importCard.getAttribute('data-open') !== 'true') $('#import-head').click();
       importCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
@@ -2638,6 +2674,9 @@
 
     window.addEventListener('dragover', (e) => {
       e.preventDefault();
+      if (overlay && !overlay.classList.contains('is-active')) {
+        overlay.classList.add('is-active');
+      }
     });
 
     window.addEventListener('dragleave', (e) => {
