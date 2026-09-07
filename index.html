@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=20260907v4" />
 </head>
 <body>
 
@@ -23,11 +23,11 @@
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8v.1"/></symbol>
-  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-.8 4.5"/><path d="M20 5v6h-6"/></symbol>
-  <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8V3.5h10V8"/><path d="M7 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M7 14h10v6.5H7V14Z"/></symbol>
-  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
-  <symbol id="i-sheet" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 15.5h6"/></symbol>
 </svg>
 
 <!-- ===== AppBar：sticky，右側即時畢業小結 ===== -->
@@ -64,6 +64,7 @@
         <span id="verdict-word">尚在試算</span>
       </span>
     </div>
+    <div class="verdict__student" id="verdict-student" hidden></div>
     <div class="verdict__readout">
       <span class="verdict__now tnum" id="verdict-now">0</span>
       <span class="verdict__of tnum">/ 128</span>
@@ -112,7 +113,7 @@
       <div class="import__body-inner">
         <!-- Excel 拖曳上傳區（使用原生 label 關聯 input，點擊任何位置皆能 100% 彈出檔案視窗） -->
         <label class="dropzone" id="excel-dropzone" for="excel-file-input" tabindex="0" role="button" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
-          <input type="file" id="excel-file-input" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="sr-only-input" />
+          <input type="file" id="excel-file-input" accept=".xlsx,.xls,.pdf,.odt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,application/vnd.oasis.opendocument.text,application/json" class="sr-only-input" />
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -204,7 +205,7 @@
 
         <!-- 課綱拖曳上傳區 (支援 PDF / ODT / JSON) -->
         <label class="dropzone" id="cur-dropzone" for="cur-file" tabindex="0" role="button" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
-          <input type="file" id="cur-file" accept=".pdf,.odt,.json,application/pdf,application/vnd.oasis.opendocument.text,application/json" class="sr-only-input" />
+          <input type="file" id="cur-file" accept=".pdf,.odt,.json,.xlsx,.xls,application/pdf,application/vnd.oasis.opendocument.text,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="sr-only-input" />
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -296,7 +297,7 @@
     } catch (e) {}
   }
 </script>
-<script src="curriculum.js"></script>
-<script src="app.js"></script>
+<script src="curriculum.js?v=20260907v4"></script>
+<script src="app.js?v=20260907v4"></script>
 </body>
 </html>

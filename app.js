@@ -119,7 +119,7 @@
   const state = migrate(readJSON(STORE_KEY, null));
 
   function migrate(saved) {
-    const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {}, offsetCount: 2, passedCourses: [] };
+    const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {}, offsetCount: 2, passedCourses: [], student: null };
     if (!saved) { seedDefaults(base); return base; }
     const s = Object.assign(base, saved);
     s.checked = saved.checked || {};
@@ -129,6 +129,7 @@
     s.credits = saved.credits || {};
     s.offsetCount = saved.offsetCount != null ? saved.offsetCount : 2;
     s.passedCourses = Array.isArray(saved.passedCourses) ? saved.passedCourses : [];
+    s.student = saved.student || null;
     // 舊版單一 major / offset / general / free 的資料搬過來
     if (typeof saved.major === 'string') s.choice.major = saved.major;
     if (typeof saved.offset === 'boolean') s.offset.major = saved.offset;
@@ -597,6 +598,27 @@
     $('#verdict-word').textContent = word;
     const stateIconUse = $('#verdict-state .icon use');
     if (stateIconUse) stateIconUse.setAttribute('href', '#' + iconId);
+
+    // 頂部結論面板學生名牌（讓使用者上傳後一眼確認身分與及格總學分）
+    const vStudent = $('#verdict-student');
+    if (vStudent) {
+      if (state.student && (state.student.name || state.student.id)) {
+        vStudent.hidden = false;
+        vStudent.innerHTML = '';
+        const namePart = state.student.name || '同學';
+        const idPart = state.student.id ? ` (${state.student.id})` : '';
+        const semPart = state.student.semesters ? ` · 歷年 ${state.student.semesters} 個學期` : '';
+        const crPart = state.student.totalCr != null ? ` · 共 ${state.student.totalCr} 及格學分` : '';
+        vStudent.append(
+          icon('i-cap'),
+          el('span', {}, namePart + idPart),
+          el('span', { style: 'font-weight:normal;opacity:0.85;margin-left:4px;' }, semPart + crPart)
+        );
+      } else {
+        vStudent.hidden = true;
+        vStudent.innerHTML = '';
+      }
+    }
 
     animNumber($('#verdict-now'), r.total);
     animMeter($('#verdict-fill'), (r.total / TOTAL) * 100);
@@ -1482,6 +1504,14 @@
       grade: c.score,
     }));
 
+    const totalCr = Math.round(passedCourses.reduce((s, c) => s + c.cr, 0));
+    state.student = {
+      name: data.studentName || '',
+      id: data.studentId || '',
+      semesters: data.semesters ? data.semesters.length : 0,
+      totalCr: totalCr
+    };
+
     syncChecks();
     syncCredits();
     syncThresholds();
@@ -1498,7 +1528,6 @@
       const nameStr = data.studentName || '同學';
       const idStr = data.studentId ? ` (${data.studentId})` : '';
       const semsStr = data.semesters.length ? ` · 歷年 ${data.semesters.length} 個學期` : '';
-      const totalCr = Math.round(passedCourses.reduce((s, c) => s + c.cr, 0));
       badge.append(
         icon('i-cap'),
         el('span', {}, nameStr + idStr),
@@ -1546,11 +1575,15 @@
     const un = $('#import-unmatched');
     if (un) un.hidden = true;
 
-    const importCard = $('#import');
-    if (importCard && importCard.getAttribute('data-open') !== 'true') {
-      $('#import-head').click();
+    // 立即自動平滑滾動至 4 年 8 學期建議規劃區，讓使用者一眼看見修畢標記與抵免
+    const roadmapEl = $('#roadmap-section');
+    if (roadmapEl) {
+      setTimeout(() => {
+        roadmapEl.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+      }, 100);
     }
-    toast('成績單匯入成功！已為您完成試算', 'go');
+    const studentTitle = data.studentName ? `${data.studentName} 同學的` : '';
+    toast(`已成功匯入 ${studentTitle}成績單！已為您更新 8 學期建議課表`, 'go');
   }
 
   function handleExcelFile(file) {
@@ -2265,10 +2298,16 @@
         });
 
         if (errs.length) {
+          const curPanel = $('#cur-panel');
+          if (curPanel && curPanel.getAttribute('data-open') !== 'true') {
+            $('#cur-panel-head').click();
+          }
+          if (curPanel) curPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
           say(el('div', {},
             el('b', {}, '檔案解析完成，但課綱內容檢核未通過：'),
             el('ul', { style: 'margin:.4rem 0 .4rem 1.1rem' }, errs.map((e) => el('li', {}, e))),
             el('div', {}, '目前解析到 → ' + (counts.join('；') || '（無資料）'))), true);
+          toast('課綱格式有誤，請查看下方說明', 'miss');
           return;
         }
 
@@ -2277,26 +2316,25 @@
         const m = cur.meta || {};
         const metaStr = [m.school, m.dept, m.cohort, m.totalRequired ? (m.totalRequired + ' 學分') : ''].filter(Boolean).join(' · ');
 
-        const applyBtn = el('button', { class: 'btn btn--primary', style: 'margin-top:.6rem' },
-          el('svg', { class: 'icon' }, el('use', { href: '#i-check' })),
-          ' 立即套用此課綱'
-        );
-        applyBtn.addEventListener('click', () => apply(cur));
-
         say(el('div', {},
           el('b', {}, '🎉 成功解析課綱：' + (metaStr || f.name)),
           el('div', { style: 'margin-top:.3rem; font-size:var(--fs-xs); color:var(--ink-2); line-height:1.6;' },
             counts.join(' ｜ ')
           ),
-          applyBtn
+          el('div', { style: 'margin-top:.5rem; font-weight:bold; color:var(--go);' }, '正在自動套用此課綱並更新試算…')
         ));
+        toast('課綱解析成功！正在為您自動套用…', 'go');
+        setTimeout(() => apply(cur), 400);
       } catch (err) {
+        const curPanel = $('#cur-panel');
+        if (curPanel && curPanel.getAttribute('data-open') !== 'true') {
+          $('#cur-panel-head').click();
+        }
+        if (curPanel) curPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         say('課綱解析失敗：' + (err && err.message ? err.message : String(err)), true);
+        toast('課綱解析失敗：' + (err && err.message ? err.message : String(err)), 'miss');
       }
     };
-
-    // 課綱檔案選取與拖曳上傳
-    bindDropzone($('#cur-dropzone'), $('#cur-file'), handleCurriculumFile);
 
     $('#cur-import-json').addEventListener('click', () => {
       const t = $('#cur-text').value.trim();
@@ -2344,6 +2382,40 @@
   /* =====================================================================
      初始化
      ===================================================================== */
+  async function handleUniversalFile(file) {
+    if (!file) return;
+    const name = (file.name || '').toLowerCase();
+    const type = (file.type || '').toLowerCase();
+
+    // Excel 成績單
+    if (name.endsWith('.xlsx') || name.endsWith('.xls') || type.includes('spreadsheetml') || type.includes('ms-excel')) {
+      handleExcelFile(file);
+      return;
+    }
+
+    // 課綱檔案（ODT / PDF / JSON）
+    if (name.endsWith('.odt') || name.endsWith('.pdf') || name.endsWith('.json') || type.includes('opendocument') || type.includes('pdf') || type.includes('json')) {
+      if (typeof handleCurriculumFile === 'function') {
+        handleCurriculumFile(file);
+      }
+      return;
+    }
+
+    // 備援嘗試：檢查是否為課綱 JSON 內容
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      if (obj && (obj.groups || obj.meta)) {
+        if (typeof handleCurriculumFile === 'function') {
+          handleCurriculumFile(file);
+        }
+        return;
+      }
+    } catch (_) {}
+
+    toast('不支援的檔案格式，請上傳 .xlsx 成績單，或 .pdf / .odt / .json 課綱', 'miss');
+  }
+
   function init() {
     // 頁面標題與說明跟著課綱走
     const m = C.meta || {};
@@ -2401,10 +2473,12 @@
       location.reload();
     });
 
-    // Excel 檔案選取與拖曳上傳
-    const dropzone = $('#excel-dropzone');
-    const fileInput = $('#excel-file-input');
-    bindDropzone(dropzone, fileInput, handleExcelFile);
+    renderCurriculumBar();
+    setupCurriculumPanel();
+
+    // 檔案選取與拖曳上傳（全功能智慧檔案路由：支援 .xlsx / .xls / .pdf / .odt / .json）
+    bindDropzone($('#excel-dropzone'), $('#excel-file-input'), handleUniversalFile);
+    bindDropzone($('#cur-dropzone'), $('#cur-file'), handleUniversalFile);
 
     // 全頁面拖曳支援：若使用者直接將 Excel 或課綱（.odt / .pdf / .json）拖入視窗任何位置
     ['dragenter', 'dragover'].forEach((eventName) => {
@@ -2414,23 +2488,10 @@
     });
     window.addEventListener('drop', (e) => {
       e.preventDefault();
-      if (e.target.closest('#excel-dropzone') || e.target.closest('#cur-dropzone')) return;
       const dt = e.dataTransfer;
       const f = dt && dt.files && dt.files[0];
       if (!f) return;
-      const name = f.name.toLowerCase();
-      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-        handleExcelFile(f);
-      } else if (name.endsWith('.odt') || name.endsWith('.pdf') || name.endsWith('.json')) {
-        const curCard = $('#cur-panel');
-        if (curCard && curCard.getAttribute('data-open') !== 'true') {
-          $('#cur-panel-head').click();
-        }
-        if (curCard) curCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-        if (typeof handleCurriculumFile === 'function') {
-          handleCurriculumFile(f);
-        }
-      }
+      handleUniversalFile(f);
     });
 
     // 頁首即時小結：點一下回到「畢業結論」
@@ -2445,9 +2506,6 @@
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
       });
     }
-
-    renderCurriculumBar();
-    setupCurriculumPanel();
 
     setupMotion();   // 先決定動效模式，再畫第一次狀態
     update();

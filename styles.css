@@ -177,6 +177,26 @@ svg { display: block; }
 .verdict[data-state="short"] .verdict__state { color: var(--warn); background: var(--warn-tint); }
 .verdict[data-state="hold"] .verdict__state { color: var(--miss); background: var(--miss-tint); }
 
+.verdict__student {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent-strong);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.verdict__student .icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--accent);
+}
+
 /* 大讀數：學分 / 128 */
 .verdict__readout { display: flex; align-items: baseline; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .verdict__now { font-family: 'Noto Serif TC', serif; font-size: var(--fs-display);
