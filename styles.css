@@ -849,6 +849,161 @@ svg { display: block; }
 }
 
 /* =====================================================================
+   Toast 通知浮層（全螢幕置中顯眼浮動）
+   ===================================================================== */
+.toast-wrap {
+  position: fixed;
+  bottom: 2.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  pointer-events: none;
+  max-width: 90vw;
+}
+.toast {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.8rem 1.5rem;
+  background: color-mix(in srgb, var(--ink) 95%, #000);
+  color: #fff;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+}
+.toast .icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  color: #fff;
+}
+.toast--go {
+  background: var(--go-strong);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(22, 101, 52, 0.4);
+}
+.toast--miss {
+  background: var(--miss);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(185, 28, 28, 0.4);
+}
+
+/* =====================================================================
+   全視窗拖曳提示遮罩
+   ===================================================================== */
+.window-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.window-drop-overlay.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.window-drop-overlay__box {
+  background: var(--paper);
+  border: 3px dashed var(--accent);
+  border-radius: var(--r-lg);
+  padding: var(--sp-8) var(--sp-10);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--ink);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  transform: scale(0.96);
+  transition: transform 0.2s ease;
+}
+.window-drop-overlay.is-active .window-drop-overlay__box {
+  transform: scale(1);
+}
+.window-drop-overlay__box h2 {
+  font-size: var(--fs-h2);
+  color: var(--accent-strong);
+  margin-bottom: var(--sp-2);
+}
+.window-drop-overlay__box p {
+  font-size: var(--fs-body);
+  color: var(--ink-2);
+}
+
+/* =====================================================================
+   即時上傳狀態列
+   ===================================================================== */
+.upload-status-bar {
+  margin-bottom: var(--sp-4);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--dur-fast) ease;
+}
+.upload-status-bar.is-go {
+  background: color-mix(in srgb, var(--go) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--go) 40%, var(--line));
+}
+.upload-status-bar.is-error {
+  background: color-mix(in srgb, var(--miss) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--miss) 40%, var(--line));
+}
+.upload-status-bar__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.upload-status-bar__icon {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: var(--r-circle);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.upload-status-bar.is-go .upload-status-bar__icon {
+  background: color-mix(in srgb, var(--go) 22%, transparent);
+  color: var(--go-strong);
+}
+.upload-status-bar.is-error .upload-status-bar__icon {
+  background: color-mix(in srgb, var(--miss) 22%, transparent);
+  color: var(--miss);
+}
+.upload-status-bar__text {
+  flex: 1;
+  min-width: 0;
+}
+.upload-status-bar__text b {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.upload-status-bar__text span {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  line-height: 1.4;
+  display: block;
+}
+
+/* =====================================================================
    列印 / 存 PDF：印出來是一份可以帶去系辦談的檢核表
    去掉操作介面，攤平折疊內容，補上勾選符號（列印不套背景色）
    ===================================================================== */

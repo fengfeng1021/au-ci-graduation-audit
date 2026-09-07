@@ -120,21 +120,32 @@
 
   function migrate(saved) {
     const base = { checked: {}, choice: {}, offset: {}, credits: {}, thresholds: {}, offsetCount: 2, passedCourses: [], student: null };
-    if (!saved) { seedDefaults(base); return base; }
-    const s = Object.assign(base, saved);
-    s.checked = saved.checked || {};
-    s.thresholds = saved.thresholds || {};
-    s.choice = saved.choice || {};
-    s.offset = saved.offset || {};
-    s.credits = saved.credits || {};
-    s.offsetCount = saved.offsetCount != null ? saved.offsetCount : 2;
-    s.passedCourses = Array.isArray(saved.passedCourses) ? saved.passedCourses : [];
-    s.student = saved.student || null;
-    // 舊版單一 major / offset / general / free 的資料搬過來
-    if (typeof saved.major === 'string') s.choice.major = saved.major;
-    if (typeof saved.offset === 'boolean') s.offset.major = saved.offset;
-    if (typeof saved.general === 'number') s.credits.general = saved.general;
-    if (typeof saved.free === 'number') s.credits.free = saved.free;
+    const s = Object.assign(base, saved || {});
+    s.checked = s.checked || {};
+    s.thresholds = s.thresholds || {};
+    s.choice = s.choice || {};
+    s.offset = s.offset || {};
+    s.credits = s.credits || {};
+    s.offsetCount = s.offsetCount != null ? s.offsetCount : 2;
+    s.passedCourses = Array.isArray(s.passedCourses) ? s.passedCourses : [];
+    s.student = s.student || null;
+
+    // 跨課綱共享學生身分與已修課程
+    const shared = readJSON('au-audit-shared-student-v1', null);
+    if (shared && shared.student) {
+      if (!s.student) s.student = shared.student;
+      if ((!s.passedCourses || !s.passedCourses.length) && Array.isArray(shared.passedCourses)) {
+        s.passedCourses = shared.passedCourses;
+      }
+    }
+
+    if (saved) {
+      // 舊版單一 major / offset / general / free 的資料搬過來
+      if (typeof saved.major === 'string') s.choice.major = saved.major;
+      if (typeof saved.offset === 'boolean') s.offset.major = saved.offset;
+      if (typeof saved.general === 'number') s.credits.general = saved.general;
+      if (typeof saved.free === 'number') s.credits.free = saved.free;
+    }
     seedDefaults(s);
     return s;
   }
@@ -657,6 +668,22 @@
         .to(t, { y: 8, autoAlpha: 0, duration: 0.4, ease: 'power2.in' }, '+=2.2');
     } else {
       setTimeout(() => t.remove(), 2600);
+    }
+  }
+
+  function showUploadStatus(title, desc, type = 'info') {
+    const bar = $('#upload-status-bar');
+    if (!bar) return;
+    bar.hidden = false;
+    bar.className = 'upload-status-bar' + (type === 'go' ? ' is-go' : type === 'error' ? ' is-error' : '');
+    const titleEl = $('#upload-status-title');
+    const descEl = $('#upload-status-desc');
+    const iconEl = $('#upload-status-icon');
+    if (titleEl) titleEl.textContent = title;
+    if (descEl) descEl.textContent = desc;
+    if (iconEl) {
+      iconEl.innerHTML = '';
+      iconEl.append(icon(type === 'go' ? 'i-check' : type === 'error' ? 'i-alert' : 'i-upload'));
     }
   }
 
@@ -1575,6 +1602,12 @@
     const un = $('#import-unmatched');
     if (un) un.hidden = true;
 
+    // 跨課綱共享已解析之成績單與學生身分
+    writeJSON('au-audit-shared-student-v1', {
+      student: state.student,
+      passedCourses: state.passedCourses
+    });
+
     // 立即自動平滑滾動至 4 年 8 學期建議規劃區，讓使用者一眼看見修畢標記與抵免
     const roadmapEl = $('#roadmap-section');
     if (roadmapEl) {
@@ -1583,12 +1616,19 @@
       }, 100);
     }
     const studentTitle = data.studentName ? `${data.studentName} 同學的` : '';
+    showUploadStatus(
+      `🎉 成績單匯入成功！${studentTitle}`,
+      `共辨識 ${data.semesters.length} 個學期、${totalCr} 及格學分。已為您在下方 8 學期規劃中標記修畢科目與學程抵免。`,
+      'go'
+    );
     toast(`已成功匯入 ${studentTitle}成績單！已為您更新 8 學期建議課表`, 'go');
   }
 
   function handleExcelFile(file) {
     if (!file) return;
+    showUploadStatus('正在讀取 Excel 成績單...', `檔案「${file.name}」解析中，請稍候...`, 'info');
     if (typeof XLSX === 'undefined') {
+      showUploadStatus('Excel 解析模組尚未就緒', '請確認 xlsx.full.min.js 是否已載入。', 'error');
       alert('Excel 解析模組尚未載入，請確認 xlsx.full.min.js 是否就緒。');
       return;
     }
@@ -1601,8 +1641,12 @@
         applyExcelImport(parsed);
       } catch (err) {
         console.error('Excel 讀取錯誤', err);
+        showUploadStatus('Excel 成績單解析失敗', (err.message || String(err)), 'error');
         alert('讀取 Excel 檔案時發生錯誤：' + (err.message || err));
       }
+    };
+    reader.onerror = (e) => {
+      showUploadStatus('檔案讀取失敗', '無法讀取此檔案，請重新選取。', 'error');
     };
     reader.readAsArrayBuffer(file);
   }
@@ -2257,16 +2301,18 @@
     const apply = (cur) => {
       const r = installCurriculum(cur);
       if (!r.ok) {
+        showUploadStatus('課綱格式檢核未通過', r.errs.join('；'), 'error');
         say(el('div', {}, el('b', {}, '課綱格式有問題，沒有匯入：'),
           el('ul', { style: 'margin:.4rem 0 0 1.1rem' }, r.errs.map((e) => el('li', {}, e)))), true);
         return;
       }
       say('課綱已匯入，正在切換…');
-      setTimeout(() => location.reload(), 500);
+      setTimeout(() => location.reload(), 300);
     };
 
     handleCurriculumFile = async (f) => {
       if (!f) return;
+      showUploadStatus('正在讀取課綱檔案...', `檔案「${f.name}」解析中，請稍候...`, 'info');
       say('正在解析課綱檔案（' + f.name + '）…');
       const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
       try {
@@ -2298,6 +2344,7 @@
         });
 
         if (errs.length) {
+          showUploadStatus('課綱格式未通過檢核', errs.join('；'), 'error');
           const curPanel = $('#cur-panel');
           if (curPanel && curPanel.getAttribute('data-open') !== 'true') {
             $('#cur-panel-head').click();
@@ -2323,9 +2370,29 @@
           ),
           el('div', { style: 'margin-top:.5rem; font-weight:bold; color:var(--go);' }, '正在自動套用此課綱並更新試算…')
         ));
+        showUploadStatus(
+          '🎉 課綱檔案解析成功！正在自動套用...',
+          `已成功識別「${metaStr}」，包含 ${counts.length} 個修課類別標準。正在切換課綱並重新試算...`,
+          'go'
+        );
         toast('課綱解析成功！正在為您自動套用…', 'go');
+
+        // 存入 flash toast，重新載入後立即跳出成功通知與狀態列
+        try {
+          sessionStorage.setItem('au-flash-toast', JSON.stringify({
+            msg: `🎉 課綱套用成功！已載入「${metaStr}」`,
+            kind: 'go',
+            status: {
+              title: `🎉 課綱已成功套用：${metaStr}`,
+              desc: `已依據「${f.name}」課規更新核心必修與學程設定，並自動保留已修課程試算。`,
+              kind: 'go'
+            }
+          }));
+        } catch (_) {}
+
         setTimeout(() => apply(cur), 400);
       } catch (err) {
+        showUploadStatus('課綱解析失敗', (err && err.message ? err.message : String(err)), 'error');
         const curPanel = $('#cur-panel');
         if (curPanel && curPanel.getAttribute('data-open') !== 'true') {
           $('#cur-panel-head').click();
@@ -2387,6 +2454,9 @@
     const name = (file.name || '').toLowerCase();
     const type = (file.type || '').toLowerCase();
 
+    // 立即顯示視覺進度反饋，讓使用者 100% 確知系統已接收到檔案並在處理
+    showUploadStatus('已接收到檔案：' + (file.name || '檔案'), '系統正自動識別檔案格式並進行分析試算，請稍候...', 'info');
+
     // Excel 成績單
     if (name.endsWith('.xlsx') || name.endsWith('.xls') || type.includes('spreadsheetml') || type.includes('ms-excel')) {
       handleExcelFile(file);
@@ -2413,6 +2483,7 @@
       }
     } catch (_) {}
 
+    showUploadStatus('無法辨識此檔案格式', `檔案「${file.name}」非支援格式。請上傳校務系統「歷年成績列印.xlsx」，或課規查詢匯出的「.pdf / .odt / .json」課綱檔案。`, 'error');
     toast('不支援的檔案格式，請上傳 .xlsx 成績單，或 .pdf / .odt / .json 課綱', 'miss');
   }
 
@@ -2434,6 +2505,78 @@
     else $('#thresholds-title').hidden = true;
 
     $$('.card__body, .import__body').forEach((b) => { b.style.overflow = 'hidden'; });
+
+    // 檢查是否有重新載入前留下的 flash 通知
+    try {
+      const flash = sessionStorage.getItem('au-flash-toast');
+      if (flash) {
+        sessionStorage.removeItem('au-flash-toast');
+        const f = JSON.parse(flash);
+        setTimeout(() => {
+          if (f.msg) toast(f.msg, f.kind || 'go');
+          if (f.status) showUploadStatus(f.status.title, f.status.desc, f.status.kind || 'go');
+        }, 250);
+      }
+    } catch (_) {}
+
+    // 自動將跨課綱保留之已修及格科目比對至目前課綱
+    if (state.passedCourses && state.passedCourses.length > 0 && Object.keys(state.checked).length === 0) {
+      const idx = allCourses();
+      let autoMatched = 0;
+      state.passedCourses.forEach((c) => {
+        const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
+        const hit = matchCourse(nline, idx);
+        if (hit) {
+          state.checked[hit.key] = true;
+          autoMatched++;
+        }
+      });
+
+      // 區分通識共同與自由選修
+      const isGeneralCourse = (c) => {
+        if (c.opt && c.opt.includes('通識')) return true;
+        if (c.code && /^(GOG|GRG|GSG)/i.test(c.code)) return true;
+        const n = norm(c.name);
+        return /共通英語文|科技英文|法律與生活|設計思考與創新|資訊科技概論|歷史與文化|程式設計與智慧應用|中文表達與應用|永續發展與實踐|體育|科技應用|解密舊約聖經|教育與人生|健康與生活|進修英語/.test(n);
+      };
+      let generalCr = 0, freeCr = 0;
+      state.passedCourses.forEach((c) => {
+        const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
+        if (!matchCourse(nline, idx)) {
+          if (isGeneralCourse(c)) generalCr += (c.cr || 0);
+          else freeCr += (c.cr || 0);
+        }
+      });
+
+      const genGroup = GROUPS.find((g) => g.id === 'general' || /通識/.test(g.title));
+      if (genGroup && genGroup.kind === 'credits') {
+        state.credits[genGroup.id] = Math.round(generalCr);
+      }
+      const freeGroup = GROUPS.find((g) => g.id === 'free' || /自由/.test(g.title));
+      if (freeGroup && freeGroup.kind === 'credits') {
+        state.credits[freeGroup.id] = Math.round(freeCr);
+      }
+
+      const peCount = state.passedCourses.filter((c) => /體育/.test(c.name) || /GSG/i.test(c.code)).length;
+      if (peCount >= 4) state.thresholds['pe'] = true;
+      if (state.passedCourses.some((c) => /永續發展與實踐|服務學習/.test(c.name))) state.thresholds['service'] = true;
+      if (state.passedCourses.some((c) => /基礎程式設計|資訊科技概論|程式設計與智慧應用/.test(c.name))) state.thresholds['info'] = true;
+      if (state.passedCourses.some((c) => /共通英語文|進修英語|科技英文/.test(c.name))) state.thresholds['english'] = true;
+
+      syncChecks();
+      syncCredits();
+      syncThresholds();
+      save();
+    }
+
+    // 狀態列關閉按鈕
+    const statusClose = $('#upload-status-close');
+    if (statusClose) {
+      statusClose.addEventListener('click', () => {
+        const bar = $('#upload-status-bar');
+        if (bar) bar.hidden = true;
+      });
+    }
 
     // Import 面板預設收合
     const importCard = $('#import');
@@ -2469,7 +2612,10 @@
     $('#btn-print').addEventListener('click', () => window.print());
     $('#btn-reset').addEventListener('click', () => {
       if (!confirm('確定要清空所有勾選與輸入嗎？此動作無法復原。')) return;
-      try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+      try {
+        localStorage.removeItem(STORE_KEY);
+        localStorage.removeItem('au-audit-shared-student-v1');
+      } catch (e) {}
       location.reload();
     });
 
@@ -2480,14 +2626,33 @@
     bindDropzone($('#excel-dropzone'), $('#excel-file-input'), handleUniversalFile);
     bindDropzone($('#cur-dropzone'), $('#cur-file'), handleUniversalFile);
 
-    // 全頁面拖曳支援：若使用者直接將 Excel 或課綱（.odt / .pdf / .json）拖入視窗任何位置
-    ['dragenter', 'dragover'].forEach((eventName) => {
-      window.addEventListener(eventName, (e) => {
-        e.preventDefault();
-      });
+    // 全視窗拖曳提示遮罩與全頁面拖曳支援（支援將檔案直接拖入瀏覽器任意處）
+    const overlay = $('#window-drop-overlay');
+    let dragCounter = 0;
+
+    window.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dragCounter++;
+      if (overlay) overlay.classList.add('is-active');
     });
+
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        if (overlay) overlay.classList.remove('is-active');
+      }
+    });
+
     window.addEventListener('drop', (e) => {
       e.preventDefault();
+      dragCounter = 0;
+      if (overlay) overlay.classList.remove('is-active');
       const dt = e.dataTransfer;
       const f = dt && dt.files && dt.files[0];
       if (!f) return;
