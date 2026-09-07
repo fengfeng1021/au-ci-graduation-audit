@@ -2160,6 +2160,48 @@
 
   let handleCurriculumFile = null;
 
+  function bindDropzone(zone, input, onFile) {
+    if (!zone || !input) return;
+
+    zone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        input.click();
+      }
+    });
+
+    input.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) onFile(f);
+      e.target.value = '';
+    });
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      zone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.add('is-dragover');
+      });
+    });
+
+    ['dragleave', 'dragend'].forEach((eventName) => {
+      zone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        zone.classList.remove('is-dragover');
+      });
+    });
+
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('is-dragover');
+      const dt = e.dataTransfer;
+      const f = dt && dt.files && dt.files[0];
+      if (f) onFile(f);
+    });
+  }
+
   function setupCurriculumPanel() {
     const panel = $('#cur-panel');
     if (!panel) return;
@@ -2254,44 +2296,7 @@
     };
 
     // 課綱檔案選取與拖曳上傳
-    const curDropzone = $('#cur-dropzone');
-    const curFileInput = $('#cur-file');
-
-    if (curDropzone && curFileInput) {
-      curDropzone.addEventListener('click', () => curFileInput.click());
-      curDropzone.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          curFileInput.click();
-        }
-      });
-      curFileInput.addEventListener('change', (e) => {
-        const f = e.target.files && e.target.files[0];
-        if (f) handleCurriculumFile(f);
-      });
-
-      ['dragenter', 'dragover'].forEach((eventName) => {
-        curDropzone.addEventListener(eventName, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          curDropzone.classList.add('is-dragover');
-        });
-      });
-
-      ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
-        curDropzone.addEventListener(eventName, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          curDropzone.classList.remove('is-dragover');
-        });
-      });
-
-      curDropzone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const f = dt && dt.files && dt.files[0];
-        if (f) handleCurriculumFile(f);
-      });
-    }
+    bindDropzone($('#cur-dropzone'), $('#cur-file'), handleCurriculumFile);
 
     $('#cur-import-json').addEventListener('click', () => {
       const t = $('#cur-text').value.trim();
@@ -2399,68 +2404,34 @@
     // Excel 檔案選取與拖曳上傳
     const dropzone = $('#excel-dropzone');
     const fileInput = $('#excel-file-input');
+    bindDropzone(dropzone, fileInput, handleExcelFile);
 
-    if (dropzone && fileInput) {
-      dropzone.addEventListener('click', () => fileInput.click());
-      dropzone.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          fileInput.click();
-        }
-      });
-      fileInput.addEventListener('change', (e) => {
-        const f = e.target.files && e.target.files[0];
-        if (f) handleExcelFile(f);
-      });
-
-      ['dragenter', 'dragover'].forEach((eventName) => {
-        dropzone.addEventListener(eventName, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          dropzone.classList.add('is-dragover');
-        });
-      });
-
-      ['dragleave', 'dragend', 'drop'].forEach((eventName) => {
-        dropzone.addEventListener(eventName, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          dropzone.classList.remove('is-dragover');
-        });
-      });
-
-      dropzone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const f = dt && dt.files && dt.files[0];
-        if (f) handleExcelFile(f);
-      });
-
-      // 全頁面拖曳支援：若使用者直接將 Excel 或課綱（.odt / .pdf）拖入視窗任何位置
-      window.addEventListener('dragover', (e) => {
+    // 全頁面拖曳支援：若使用者直接將 Excel 或課綱（.odt / .pdf / .json）拖入視窗任何位置
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      window.addEventListener(eventName, (e) => {
         e.preventDefault();
       });
-      window.addEventListener('drop', (e) => {
-        if (e.target.closest('#excel-dropzone') || e.target.closest('#cur-dropzone')) return;
-        const dt = e.dataTransfer;
-        const f = dt && dt.files && dt.files[0];
-        if (!f) return;
-        const name = f.name.toLowerCase();
-        if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-          e.preventDefault();
-          handleExcelFile(f);
-        } else if (name.endsWith('.odt') || name.endsWith('.pdf')) {
-          e.preventDefault();
-          const curCard = $('#cur-panel');
-          if (curCard && curCard.getAttribute('data-open') !== 'true') {
-            $('#cur-panel-head').click();
-          }
-          if (curCard) curCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-          if (typeof handleCurriculumFile === 'function') {
-            handleCurriculumFile(f);
-          }
+    });
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.target.closest('#excel-dropzone') || e.target.closest('#cur-dropzone')) return;
+      const dt = e.dataTransfer;
+      const f = dt && dt.files && dt.files[0];
+      if (!f) return;
+      const name = f.name.toLowerCase();
+      if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+        handleExcelFile(f);
+      } else if (name.endsWith('.odt') || name.endsWith('.pdf') || name.endsWith('.json')) {
+        const curCard = $('#cur-panel');
+        if (curCard && curCard.getAttribute('data-open') !== 'true') {
+          $('#cur-panel-head').click();
         }
-      });
-    }
+        if (curCard) curCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+        if (typeof handleCurriculumFile === 'function') {
+          handleCurriculumFile(f);
+        }
+      }
+    });
 
     // 頁首即時小結：點一下回到「畢業結論」
     const barV = $('#appbar-verdict');

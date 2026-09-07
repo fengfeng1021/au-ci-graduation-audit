@@ -83,8 +83,11 @@
   <!-- Toolbar -->
   <div class="toolbar">
     <button class="btn btn--ghost" id="btn-import-toggle">
-      <svg class="icon"><use href="#i-sheet"/></svg> 匯入成績單 (Excel / 文字)
+      <svg class="icon"><use href="#i-sheet"/></svg> 成績單面板
     </button>
+    <label class="btn btn--primary" for="excel-file-input" id="btn-toolbar-excel" style="cursor:pointer;" title="點此直接選擇成績單 Excel 檔案進行試算">
+      <svg class="icon"><use href="#i-upload"/></svg> 選擇成績單 Excel
+    </label>
     <button class="btn btn--ghost" id="btn-roadmap-toggle">
       <svg class="icon"><use href="#i-check"/></svg> 4 年 8 學期建議修課
     </button>
@@ -107,9 +110,9 @@
     </button>
     <div class="import__body" id="import-body">
       <div class="import__body-inner">
-        <!-- Excel 拖曳上傳區 -->
-        <div class="dropzone" id="excel-dropzone" tabindex="0" role="button" aria-label="上傳成績單 Excel 檔案">
-          <input type="file" id="excel-file-input" accept=".xlsx, .xls, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" hidden />
+        <!-- Excel 拖曳上傳區（使用原生 label 關聯 input，點擊任何位置皆能 100% 彈出檔案視窗） -->
+        <label class="dropzone" id="excel-dropzone" for="excel-file-input" tabindex="0" role="button" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
+          <input type="file" id="excel-file-input" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="sr-only-input" />
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -117,7 +120,10 @@
             <b>點此選擇或直接將成績單 Excel（.xlsx）拖曳至此</b>
             <span>支援校務系統匯出的「歷年成績列印」檔（自動跨學期解析、通識與自由選修自動加總）</span>
           </div>
-        </div>
+          <span class="btn btn--primary btn--sm dropzone__btn">
+            <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇 Excel 檔案
+          </span>
+        </label>
 
         <div class="import__result-bar" id="import-result-bar" hidden>
           <div class="student-badge" id="student-badge"></div>
@@ -197,8 +203,8 @@
         </div>
 
         <!-- 課綱拖曳上傳區 (支援 PDF / ODT / JSON) -->
-        <div class="dropzone" id="cur-dropzone" tabindex="0" role="button" aria-label="上傳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
-          <input type="file" id="cur-file" accept=".pdf,.odt,.json,application/pdf,application/vnd.oasis.opendocument.text,application/json" hidden />
+        <label class="dropzone" id="cur-dropzone" for="cur-file" tabindex="0" role="button" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
+          <input type="file" id="cur-file" accept=".pdf,.odt,.json,application/pdf,application/vnd.oasis.opendocument.text,application/json" class="sr-only-input" />
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -206,9 +212,15 @@
             <b>點此選擇或直接將課綱檔案（.pdf / .odt / .json）拖曳至此</b>
             <span>支援學校課規查詢匯出的 PDF 或 ODT 檔，自動解析系所、核心必修、專業學程與學分</span>
           </div>
-        </div>
+          <span class="btn btn--primary btn--sm dropzone__btn">
+            <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇課綱檔案
+          </span>
+        </label>
 
         <div class="cur-actions">
+          <label class="btn btn--ghost" for="cur-file" style="cursor:pointer;" title="點此選擇課綱檔案（支援 PDF、ODT、JSON）">
+            <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱檔案
+          </label>
           <button class="btn btn--quiet" id="cur-export">
             <svg class="icon"><use href="#i-download"/></svg> 匯出目前課綱（當範本改）
           </button>

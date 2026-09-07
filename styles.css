@@ -429,6 +429,90 @@ svg { display: block; }
 }
 .student-badge .badge-meta { opacity: 0.9; font-weight: 400; }
 
+/* =====================================================================
+   Dropzone 拖曳上傳區
+   ===================================================================== */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  border: 2px dashed var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  cursor: pointer;
+  transition: all var(--dur-fast) ease;
+  position: relative;
+  user-select: none;
+  width: 100%;
+  margin-bottom: var(--sp-3);
+}
+.dropzone:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--paper));
+}
+.dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dropzone.is-dragover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+  transform: scale(1.008);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.dropzone__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  margin-bottom: var(--sp-1);
+}
+.dropzone__text {
+  max-width: 480px;
+}
+.dropzone__text b {
+  display: block;
+  font-size: var(--fs-base);
+  color: var(--ink);
+  margin-bottom: var(--sp-1);
+}
+.dropzone__text span {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.dropzone__btn {
+  margin-top: var(--sp-2);
+  pointer-events: none;
+}
+/* 避免拖曳時子元素的滑鼠事件觸發 dragleave 造成閃爍 */
+.dropzone * {
+  pointer-events: none;
+}
+/* 隱藏原生檔案輸入框（保持無障礙與可點擊關聯） */
+.sr-only-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  opacity: 0 !important;
+}
+
 .import-paste-toggle { margin-top: var(--sp-4); font-size: var(--fs-xs); color: var(--ink-2); }
 .import-paste-toggle summary {
   cursor: pointer; color: var(--accent); font-weight: 600; padding: var(--sp-1) 0; list-style-position: outside;
