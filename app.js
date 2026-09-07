@@ -174,6 +174,7 @@
     if (!isObj(s.choice)) s.choice = {};
     if (!isObj(s.offset)) s.offset = {};
     if (!isObj(s.credits)) s.credits = {};
+    if (!isObj(s.reassign)) s.reassign = {}; // 課程手動改列：passedCourseKey -> groupId
     if (typeof s.offsetCount !== 'number' || !(s.offsetCount >= 0)) s.offsetCount = 2;
     s.passedCourses = Array.isArray(s.passedCourses) ? s.passedCourses : [];
     if (s.student != null && !isObj(s.student)) s.student = null;
@@ -518,18 +519,83 @@
     return card(g.id, g.title, g.note, body);
   }
 
-  /* 已匯入及格科目中、未對應到任何必修/學程清單者，依通識規則拆成兩類。
+  /* =====================================================================
+     課程手動改列：課綱改版常改課名，對不上的課會被丟進自由選修；
+     這裡讓使用者逐門把它搬到正確分類（院核心 / 系核心 / 主修學程 / 通識 / 自由）。
+     state.reassign = { passedCourseKey: 目標 groupId }，只有使用者動手才會有值。
+     ===================================================================== */
+  function passedCourseKey(c) {
+    return ((c.code || '').toUpperCase() + '||' + norm(c.name || ''));
+  }
+  function generalGroupId() {
+    const g = GROUPS.find((x) => x.id === 'general' || /通識|校定/.test(x.title || ''));
+    return g ? g.id : '';
+  }
+  function freeGroupId() {
+    const g = GROUPS.find((x) => x.id === 'free' || /自由/.test(x.title || ''));
+    return g ? g.id : '';
+  }
+  /* 該筆成績「依規則」本來屬於哪個學分桶（改列前的歸屬） */
+  function autoBucketId(c) {
+    if (isGeneralCourseRecord(c)) return generalGroupId();
+    return freeGroupId();
+  }
+  function isCreditsGroupId(gid) {
+    const g = GROUPS.find((x) => x.id === gid);
+    return !!g && g.kind === 'credits';
+  }
+  /* 有效的手動目標（目標分類不存在 → 視為自動，避免舊課綱殘留搞亂試算） */
+  function reassignTargetOf(c) {
+    if (!c || !isObj(state.reassign)) return '';
+    const t = state.reassign[passedCourseKey(c)];
+    if (!t || typeof t !== 'string') return '';
+    if (!GROUPS.some((g) => g.id === t)) return '';
+    return t;
+  }
+  /* 該筆成績「顯示」在哪個學分桶：搬到另一學分桶就顯示在那邊；
+     搬到必修/學程則留在原桶（掛 badge），學分從桶子扣除。 */
+  function effectiveBucketId(c) {
+    const t = reassignTargetOf(c);
+    if (t && isCreditsGroupId(t)) return t;
+    return autoBucketId(c);
+  }
+  /* 該筆是否已透過勾選計過分（避免改列與勾選重複計分：勾選優先，改列自動讓位） */
+  function isCountedViaChecked(c) {
+    if (!c || !c.name) return false;
+    for (const k in state.checked) {
+      if (!state.checked[k]) continue;
+      const nm = k.split('::').slice(1).join('::');
+      if (nm && matchName(nm, c.name)) return true;
+    }
+    return false;
+  }
+  function groupShortLabel(g) {
+    if (!g) return '';
+    if (g.kind === 'choice') {
+      const sel = selectedOption(g);
+      return g.title + '（目前：' + (sel ? sel.label : '') + '）';
+    }
+    return g.title;
+  }
+  function groupTitleOf(gid) {
+    const g = GROUPS.find((x) => x.id === gid);
+    return g ? g.title : '';
+  }
+
+  /* 已匯入及格科目中、未對應到任何必修/學程清單者，依「有效歸屬」分桶。
      必修/學程已在各自卡片逐門顯示，這裡只列「藏在學分數字裡」的那些。 */
-  function unmatchedPassedByCategory() {
+  function breakdownLists() {
     const idx = allCourses();
-    const generalList = [], freeList = [];
+    const byBucket = {};
     (state.passedCourses || []).forEach((c) => {
       if (!c || !c.name) return;
       const nline = ((c.code || '') + ' ' + (c.name || '')).toLowerCase();
       if (matchCourse(nline, idx)) return;
-      if (isGeneralCourseRecord(c)) generalList.push(c); else freeList.push(c);
+      const b = effectiveBucketId(c);
+      if (!b) return;
+      (byBucket[b] = byBucket[b] || []).push(c);
     });
-    return { generalList, freeList };
+    return byBucket;
   }
 
   function isCreditBreakdownGroup(g, kind) {
@@ -538,11 +604,34 @@
     return g.id === 'free' || /自由/.test(g.title || '');
   }
 
-  /* 重繪所有學分卡的逐門明細（純顯示，不含輸入框，每次 update 都可安全重建） */
+  /* 某一筆成績的「改列到…」選單（原生 select，各分類動態產生） */
+  function moveSelectFor(c, autoGid) {
+    const key = passedCourseKey(c);
+    const cur = (isObj(state.reassign) && state.reassign[key]) || '';
+    const sel = el('select', {
+      class: 'move-select', title: '將「' + c.name + '」改列到別的分類',
+      'aria-label': '將「' + c.name + '」改列到別的分類',
+      onChange: (e) => {
+        const v = e.target.value;
+        if (!isObj(state.reassign)) state.reassign = {};
+        if (!v) delete state.reassign[key]; else state.reassign[key] = v;
+        save(); update();
+      },
+    });
+    const autoG = GROUPS.find((x) => x.id === autoGid);
+    sel.append(el('option', { value: '', selected: !cur }, '自動：' + (autoG ? autoG.title : '依規則')));
+    GROUPS.forEach((g) => {
+      if (g.id === autoGid) return; // 自動即此類，不重複列
+      sel.append(el('option', { value: g.id, selected: cur === g.id }, groupShortLabel(g)));
+    });
+    return sel;
+  }
+
+  /* 重繪所有學分卡的逐門明細（含改列選單；除 select 外無輸入框，每次 update 都可安全重建） */
   function refreshCreditBreakdowns() {
     const mounts = $$('[data-breakdown]');
     if (!mounts.length) return;
-    const { generalList, freeList } = unmatchedPassedByCategory();
+    const byBucket = breakdownLists();
     const hasImport = (state.passedCourses || []).length > 0;
     mounts.forEach((mount) => {
       const gid = mount.getAttribute('data-breakdown');
@@ -552,9 +641,9 @@
       const isGen = isCreditBreakdownGroup(g, 'general');
       const isFree = isCreditBreakdownGroup(g, 'free');
       if (!isGen && !isFree) return;
-      const list = isGen ? generalList : freeList;
+      const autoGid = isGen ? generalGroupId() : freeGroupId();
+      const list = byBucket[gid] || [];
       const entered = state.credits[gid] || 0;
-      const sum = Math.round(list.reduce((t, c) => t + (c.cr || 0), 0));
 
       if (!hasImport) {
         mount.append(el('div', { class: 'credit-empty' },
@@ -566,21 +655,74 @@
           '匯入的成績中沒有歸到這一類的課程' + (entered ? '（上方 ' + entered + ' 學分為手動填入或舊資料，請自行核對）' : '') + '。'));
         return;
       }
+      // 本類實際採計 = 留在桶內的學分（已改列到必修/學程的不計入此類，改列到別桶的顯示在那邊）
+      const counted = list.filter((c) => {
+        const t = reassignTargetOf(c);
+        return !t || isCreditsGroupId(t);
+      });
+      const countedSum = Math.round(counted.reduce((t, c) => t + (c.cr || 0), 0));
       mount.append(el('div', { class: 'credit-breakdown__title tnum' },
-        '逐門明細（共 ' + list.length + ' 門，加總 ' + sum + ' 學分）：'));
+        '逐門明細（共 ' + list.length + ' 門，本類採計 ' + countedSum + ' 學分）：'));
       const box = el('div', { class: 'credit-breakdown__list' });
       list.forEach((c) => {
         const meta = [c.code || '', (c.cr != null ? c.cr + ' 學分' : ''), c.score || '', c.sem ? (c.sem + ' 學期') : '']
           .filter((x) => x).join(' · ');
+        const t = reassignTargetOf(c);
+        const auto = autoBucketId(c);
+        let badge = null;
+        if (t && !isCreditsGroupId(t)) {
+          badge = el('span', { class: 'move-badge move-badge--out' }, '已改列【' + groupTitleOf(t) + '】（不計入此類）');
+        } else if (t && auto && auto !== gid) {
+          badge = el('span', { class: 'move-badge' }, '由【' + groupTitleOf(auto) + '】改列');
+        }
         box.append(el('div', { class: 'credit-course' },
-          el('span', { class: 'credit-course__name' }, c.name),
-          meta ? el('span', { class: 'credit-course__meta tnum' }, meta) : null));
+          el('div', { class: 'credit-course__main' },
+            el('div', { class: 'credit-course__namerow' },
+              el('span', { class: 'credit-course__name' }, c.name),
+              badge),
+            meta ? el('span', { class: 'credit-course__meta tnum' }, meta) : null),
+          el('div', { class: 'credit-course__side' }, moveSelectFor(c, autoGid || gid))));
       });
       mount.append(box);
-      if (entered !== sum) {
+      if (entered !== countedSum) {
         mount.append(el('div', { class: 'credit-diff tnum' },
-          '上方填 ' + entered + ' 學分，與明細加總 ' + sum + ' 不同（曾手動調整或含舊資料，以上方數字為試算依據）。'));
+          '上方填 ' + entered + ' 學分，本類實際採計 ' + countedSum + ' 學分（差異來自下方的手動改列；試算以實際採計為準）。'));
       }
+    });
+  }
+
+  /* 必修/學程卡的「手動改列搬入」區：讓被搬進來的課在目標分類也看得見 */
+  function renderAssignedBlocks() {
+    GROUPS.forEach((g) => {
+      if (!g || g.kind === 'credits') return;
+      const cardEl = document.querySelector('.card[data-cat="' + g.id + '"]');
+      if (!cardEl) return;
+      const inner = cardEl.querySelector('.card__body-inner');
+      if (!inner) return;
+      const inbound = (state.passedCourses || []).filter(
+        (c) => c && c.name && reassignTargetOf(c) === g.id && !isCountedViaChecked(c));
+      let mount = inner.querySelector('div[data-assigned]');
+      if (!inbound.length) {
+        if (mount) mount.remove();
+        return;
+      }
+      if (!mount) {
+        mount = el('div', { class: 'assigned-in' });
+        mount.setAttribute('data-assigned', g.id);
+        inner.append(mount);
+      }
+      mount.innerHTML = '';
+      const sum = inbound.reduce((t, c) => t + (c.cr || 0), 0);
+      mount.append(el('div', { class: 'assigned-in__title tnum' },
+        '手動改列搬入（共 ' + inbound.length + ' 門，' + sum + ' 學分）：'));
+      inbound.forEach((c) => {
+        const meta = [c.code || '', (c.cr != null ? c.cr + ' 學分' : ''), c.score || '', c.sem ? (c.sem + ' 學期') : '']
+          .filter((x) => x).join(' · ');
+        mount.append(el('div', { class: 'assigned-course' },
+          el('span', { class: 'assigned-course__name' }, c.name),
+          meta ? el('span', { class: 'assigned-course__meta tnum' }, meta) : null));
+      });
+      mount.append(el('div', { class: 'assigned-in__note' }, '實際認定以系辦為準；若該課已在上方勾選，此處自動讓位、不重複計分。'));
     });
   }
 
@@ -615,7 +757,22 @@
   }
 
   function groupCredits(g) {
-    if (g.kind === 'credits') return state.credits[g.id] || 0;
+    if (g.kind === 'credits') {
+      // 上方輸入是匯入快照；手動改列會在此加減（搬出扣、搬入加），試算以實際採計為準
+      let v = state.credits[g.id] || 0;
+      const genId = generalGroupId(), freeId = freeGroupId();
+      if (g.id === genId || g.id === freeId) {
+        (state.passedCourses || []).forEach((c) => {
+          if (!c || !c.name) return;
+          const auto = autoBucketId(c);
+          const t = reassignTargetOf(c);
+          if (!t || t === auto) return;
+          if (t === g.id && auto !== g.id) v += (c.cr || 0); // 搬入
+          else if (auto === g.id) v -= (c.cr || 0);           // 搬出（含搬到必修/學程）
+        });
+      }
+      return Math.max(0, v);
+    }
     if (g.kind === 'choice') {
       const sel = selectedOption(g);
       const main = sumChecked(optListId(g, sel), sel.courses);
@@ -635,9 +792,18 @@
           }
         }
       }
-      return main + off;
+      // 手動改列：使用者明確指定的逐門搬入，不吃跨學程抵免上限（勾選優先，不重複計）
+      let manual = 0;
+      (state.passedCourses || []).forEach((c) => {
+        if (reassignTargetOf(c) === g.id && !isCountedViaChecked(c)) manual += (c.cr || 0);
+      });
+      return main + off + manual;
     }
-    return sumChecked(g.id, g.courses);
+    let base = sumChecked(g.id, g.courses);
+    (state.passedCourses || []).forEach((c) => {
+      if (reassignTargetOf(c) === g.id && !isCountedViaChecked(c)) base += (c.cr || 0);
+    });
+    return base;
   }
 
   function compute() {
@@ -708,6 +874,17 @@
   const shortTitle = (t) => String(t).split(/[·（(]/)[0].trim().replace(/\s+/g, '') || t;
 
   function update() {
+    // 清掉指向已不存在分類的改列殘留（換課綱後），避免幽靈調整
+    if (isObj(state.reassign)) {
+      let pruned = false;
+      Object.keys(state.reassign).forEach((k) => {
+        if (!GROUPS.some((g) => g.id === state.reassign[k])) {
+          delete state.reassign[k];
+          pruned = true;
+        }
+      });
+      if (pruned) save();
+    }
     const r = compute();
     GROUPS.forEach((g) => setCard(g, r.cats[g.id].cur));
 
@@ -770,6 +947,7 @@
 
     renderRoadmap();
     refreshCreditBreakdowns();
+    renderAssignedBlocks();
   }
 
   /* =====================================================================

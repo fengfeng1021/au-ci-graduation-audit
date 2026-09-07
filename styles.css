@@ -365,15 +365,38 @@ svg { display: block; }
 .credit-breakdown__title { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); margin-bottom: var(--sp-2); }
 .credit-breakdown__list { display: flex; flex-direction: column; border: 1px solid var(--line);
   border-radius: var(--r-sm); overflow: hidden; }
-.credit-course { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+.credit-course { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-3); background: var(--surface); font-size: var(--fs-sm); }
 .credit-course + .credit-course { border-top: 1px solid var(--line); }
+.credit-course__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.credit-course__namerow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .credit-course__name { font-weight: 600; color: var(--ink); }
-.credit-course__meta { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.credit-course__meta { font-size: var(--fs-xs); color: var(--ink-3); }
+.credit-course__side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* 改列選單：原生 select，各尺寸都好點 */
+.move-select { max-width: 11.5rem; min-height: 2rem; font-size: var(--fs-xs); font-weight: 600; color: var(--accent-strong);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--surface);
+  padding: 2px 4px; cursor: pointer; }
+.move-select:hover { border-color: var(--accent); }
+.move-badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; line-height: 1;
+  padding: 3px 8px; border-radius: var(--r-pill); color: var(--accent-strong); background: var(--accent-tint);
+  white-space: nowrap; }
+.move-badge--out { color: #7e22ce; background: #eedbff; }
 .credit-diff { margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--warn);
   background: var(--warn-tint); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); line-height: 1.6; }
 .credit-empty { font-size: var(--fs-xs); color: var(--ink-3); background: var(--surface-2);
   border-radius: var(--r-sm); padding: var(--sp-3); line-height: 1.7; }
+
+/* 必修/學程卡的手動改列搬入區 */
+.assigned-in { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--line-2); }
+.assigned-in__title { font-size: var(--fs-xs); font-weight: 700; color: #7e22ce; margin-bottom: var(--sp-2); }
+.assigned-course { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3); background: #fbf7ff; border: 1px solid #ead9fc;
+  border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.assigned-course + .assigned-course { margin-top: var(--sp-2); }
+.assigned-course__name { font-weight: 600; color: var(--ink); }
+.assigned-course__meta { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.assigned-in__note { margin-top: var(--sp-2); font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.6; }
 
 /* =====================================================================
    Thresholds：畢業門檻檢定（通過 / 未過）
@@ -1096,6 +1119,7 @@ label.dropzone {
 
   /* 只有畫面上才有意義的東西不印 */
   .appbar, .toolbar, .import, .bulk, .card__chevron, .toast-wrap,
+  .move-select { display: none !important; }
   .foot p:last-child, .intro .meta-line { display: none !important; }
 
   /* 折疊內容一律攤開 */
