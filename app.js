@@ -867,7 +867,7 @@
       el('span', { class: 'tnum', style: met ? 'color:var(--go-strong)' : '' }, String(cur)),
       el('span', { class: 'tnum' }, ' / ' + req + ' 學分'));
     if (cur > req) {
-      countEl.append(el('span', { class: 'over-hint' }, '超修 ' + (cur - req) + '，計入自由選修'));
+      countEl.append(el('span', { class: 'over-hint' }, '超修 ' + (cur - req) + '，不計入畢業總分（本類最多採計 ' + req + '）'));
     }
     animMeter(meterEl, (cur / req) * 100);
     const cardEl = countEl.closest('.card');
