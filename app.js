@@ -16,6 +16,36 @@
   'use strict';
 
   /* =====================================================================
+     全域錯誤可視化：任何本機例外直接紅字浮現 + 狀態列同步
+     ===================================================================== */
+  function reportErrorToUI(msg) {
+    try {
+      if (typeof window.__showFatal === 'function') window.__showFatal(msg);
+      else {
+        var bar = document.getElementById('fatal-error-bar');
+        if (bar) {
+          bar.classList.add('is-show');
+          bar.textContent = '⚠ 網頁發生錯誤：' + msg;
+        }
+      }
+    } catch (_) {}
+    try {
+      if (typeof showUploadStatus === 'function') {
+        showUploadStatus('發生錯誤', String(msg), 'error');
+      }
+    } catch (_) {}
+  }
+  window.addEventListener('error', function (e) {
+    if (!e) return;
+    if (e.target && e.target !== window && (e.target.tagName === 'LINK' || e.target.tagName === 'IMG')) return;
+    reportErrorToUI((e.message || '未知錯誤') + (e.filename ? ' @ ' + String(e.filename).split('/').pop() + ':' + (e.lineno || '?') : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    reportErrorToUI(r ? (r.message || String(r)) : '非同步錯誤');
+  });
+
+  /* =====================================================================
      課綱：內建 + 使用者匯入，可切換
      ===================================================================== */
   const REG_KEY = 'au-audit-curricula-v1';   // 使用者匯入的課綱
@@ -33,13 +63,22 @@
   const registry = Object.assign({}, window.CURRICULA || {}, userCurricula);
 
   function pickCurriculum() {
-    const want = localStorage.getItem(SEL_KEY);
+    let want = null;
+    try { want = localStorage.getItem(SEL_KEY); } catch (_) { want = null; }
     if (want && registry[want]) return registry[want];
     return window.CURRICULUM || registry[Object.keys(registry)[0]];
   }
 
   const C = pickCurriculum();
-  if (!C) return; // 沒有任何課綱可用
+  if (!C) {
+    // 沒有課綱也要讓頁面有紅字說明，而不是靜靜壞掉
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => reportErrorToUI('找不到可用課綱資料（curriculum.js 可能載入失敗）'));
+    } else {
+      reportErrorToUI('找不到可用課綱資料（curriculum.js 可能載入失敗）');
+    }
+    return; // 沒有任何課綱可用
+  }
 
   /* 舊格式（collegeCore / deptCore / major / general / free）自動轉成 groups */
   function toGroups(cur) {
@@ -2240,25 +2279,32 @@
   function bindDropzone(zone, input, onFile) {
     if (!zone || !input) return;
 
-    zone.addEventListener('click', () => {
-      input.click();
-    });
+    // 注意：zone 已是原生 <label for="...">，滑鼠點擊由瀏覽器原生接管，
+    // 這裡刻意不再用 JS 呼叫 input.click()，避免被瀏覽器判為非信任手勢。
+    // 僅保留鍵盤 Enter/Space 的無障礙 fallback（鍵盤事件屬於信任手勢）。
 
     zone.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        input.click();
+        // 若焦點在 label 上，Enter/Space 原生不一定會開檔，此處補上
+        // （鍵盤手勢是可信的，不會被阻擋）
+        if (e.target === zone) {
+          e.preventDefault();
+          try { input.click(); } catch (err) { reportErrorToUI('無法開啟選檔視窗：' + (err.message || err)); }
+        }
       }
     });
 
-    input.addEventListener('click', () => {
-      input.value = '';
-    });
-
-    input.addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      if (f) onFile(f);
-    });
+    // input 的 change 只綁一次（init 開頭已優先綁過，這裡防重複避免一次選檔跑兩次解析）
+    if (!input.dataset.bound) {
+      input.dataset.bound = '1';
+      input.addEventListener('click', () => {
+        input.value = '';
+      });
+      input.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) onFile(f);
+      });
+    }
 
     ['dragenter', 'dragover'].forEach((eventName) => {
       zone.addEventListener(eventName, (e) => {
@@ -2497,38 +2543,79 @@
   }
 
   function init() {
+    const safe = (label, fn) => {
+      try { fn(); }
+      catch (err) {
+        console.error('[init:' + label + ']', err);
+        reportErrorToUI(label + '初始化失敗：' + (err && err.message ? err.message : err));
+      }
+    };
+
+    // 0. 關鍵：檔案輸入 change 綁定最優先（即使後續任何渲染失敗，選檔仍有反應）
+    safe('檔案輸入', () => {
+      const excelInput = $('#excel-file-input');
+      if (excelInput && !excelInput.dataset.bound) {
+        excelInput.dataset.bound = '1';
+        excelInput.addEventListener('click', () => { excelInput.value = ''; });
+        excelInput.addEventListener('change', (e) => {
+          const f = e.target.files && e.target.files[0];
+          if (f) handleUniversalFile(f);
+        });
+      }
+      const curInput = $('#cur-file');
+      if (curInput && !curInput.dataset.bound) {
+        curInput.dataset.bound = '1';
+        curInput.addEventListener('click', () => { curInput.value = ''; });
+        curInput.addEventListener('change', (e) => {
+          const f = e.target.files && e.target.files[0];
+          if (f) handleUniversalFile(f);
+        });
+      }
+    });
+
     // 頁面標題與說明跟著課綱走
-    const m = C.meta || {};
-    const t = [m.dept, m.cohort].filter(Boolean).join(' · ');
-    document.title = (m.dept || '畢業審查') + ' 畢業審查工具';
-    const bt = $('#appbar-title');
-    if (bt) bt.textContent = t || '畢業審查';
-    const im = $('#intro-meta');
-    if (im) im.textContent = (t || '課綱') + '適用';
+    safe('標題', () => {
+      const m = C.meta || {};
+      const t = [m.dept, m.cohort].filter(Boolean).join(' · ');
+      document.title = (m.dept || '畢業審查') + ' 畢業審查工具';
+      const bt = $('#appbar-title');
+      if (bt) bt.textContent = t || '畢業審查';
+      const im = $('#intro-meta');
+      if (im) im.textContent = (t || '課綱') + '適用';
+    });
 
-    const mount = $('#sections');
-    GROUPS.forEach((g) => mount.append(groupCard(g)));
+    safe('課程卡片', () => {
+      const mount = $('#sections');
+      GROUPS.forEach((g) => mount.append(groupCard(g)));
+    });
 
-    const thr = $('#thresholds');
-    if (THRESHOLDS.length) THRESHOLDS.forEach((x) => thr.append(thresholdCard(x)));
-    else $('#thresholds-title').hidden = true;
+    safe('門檻卡片', () => {
+      const thr = $('#thresholds');
+      if (THRESHOLDS.length) THRESHOLDS.forEach((x) => thr.append(thresholdCard(x)));
+      else $('#thresholds-title').hidden = true;
+    });
 
-    $$('.card__body, .import__body').forEach((b) => { b.style.overflow = 'hidden'; });
+    safe('卡片樣式', () => {
+      $$('.card__body, .import__body').forEach((b) => { b.style.overflow = 'hidden'; });
+    });
 
     // 檢查是否有重新載入前留下的 flash 通知
-    try {
-      const flash = sessionStorage.getItem('au-flash-toast');
-      if (flash) {
-        sessionStorage.removeItem('au-flash-toast');
-        const f = JSON.parse(flash);
-        setTimeout(() => {
-          if (f.msg) toast(f.msg, f.kind || 'go');
-          if (f.status) showUploadStatus(f.status.title, f.status.desc, f.status.kind || 'go');
-        }, 250);
-      }
-    } catch (_) {}
+    safe('flash通知', () => {
+      try {
+        const flash = sessionStorage.getItem('au-flash-toast');
+        if (flash) {
+          sessionStorage.removeItem('au-flash-toast');
+          const f = JSON.parse(flash);
+          setTimeout(() => {
+            if (f.msg) toast(f.msg, f.kind || 'go');
+            if (f.status) showUploadStatus(f.status.title, f.status.desc, f.status.kind || 'go');
+          }, 250);
+        }
+      } catch (_) {}
+    });
 
     // 自動將跨課綱保留之已修及格科目比對至目前課綱
+    safe('跨課綱比對', () => {
     if (state.passedCourses && state.passedCourses.length > 0 && Object.keys(state.checked).length === 0) {
       const idx = allCourses();
       let autoMatched = 0;
@@ -2577,115 +2664,164 @@
       syncThresholds();
       save();
     }
+    }); // end 跨課綱比對
 
     // 狀態列關閉按鈕
-    const statusClose = $('#upload-status-close');
-    if (statusClose) {
-      statusClose.addEventListener('click', () => {
-        const bar = $('#upload-status-bar');
-        if (bar) bar.hidden = true;
-      });
-    }
+    safe('狀態列', () => {
+      const statusClose = $('#upload-status-close');
+      if (statusClose) {
+        statusClose.addEventListener('click', () => {
+          const bar = $('#upload-status-bar');
+          if (bar) bar.hidden = true;
+        });
+      }
+    });
 
     // Import 面板預設收合
-    const importCard = $('#import');
-    const importBody = $('#import-body');
-    importBody.style.height = '0px';
-    importBody.style.overflow = 'hidden';
-    $('#import-head').addEventListener('click', () => {
-      const open = importCard.getAttribute('data-open') !== 'true';
-      importCard.setAttribute('data-open', String(open));
-      $('#import-head').setAttribute('aria-expanded', String(open));
-      animAccordion(importCard, open);
+    safe('面板折疊', () => {
+      const importCard = $('#import');
+      const importBody = $('#import-body');
+      if (!importCard || !importBody) return;
+      importBody.style.height = '0px';
+      importBody.style.overflow = 'hidden';
+      const head = $('#import-head');
+      if (head) head.addEventListener('click', () => {
+        const open = importCard.getAttribute('data-open') !== 'true';
+        importCard.setAttribute('data-open', String(open));
+        head.setAttribute('aria-expanded', String(open));
+        animAccordion(importCard, open);
+      });
     });
 
-    // 課綱面板預設收合
-    const curBody = $('#cur-panel-body');
-    if (curBody) { curBody.style.height = '0px'; curBody.style.overflow = 'hidden'; }
-
-    // Toolbar
-    const btnExcel = $('#btn-toolbar-excel');
-    if (btnExcel) {
-      btnExcel.addEventListener('click', (e) => {
-        e.preventDefault();
-        const input = $('#excel-file-input');
-        if (input) input.click();
-      });
-    }
-
-    const btnCur = $('#btn-toolbar-cur');
-    if (btnCur) {
-      btnCur.addEventListener('click', (e) => {
-        e.preventDefault();
-        const input = $('#cur-file');
-        if (input) input.click();
-      });
-    }
-
-    const btnCurFile = $('#btn-cur-file');
-    if (btnCurFile) {
-      btnCurFile.addEventListener('click', (e) => {
-        e.preventDefault();
-        const input = $('#cur-file');
-        if (input) input.click();
-      });
-    }
-
-    $('#btn-import-toggle').addEventListener('click', () => {
-      if (importCard.getAttribute('data-open') !== 'true') $('#import-head').click();
-      importCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-    });
-    const btnRoadmap = $('#btn-roadmap-toggle');
-    if (btnRoadmap) {
-      btnRoadmap.addEventListener('click', () => {
-        const rSection = $('#roadmap-section');
-        if (rSection) {
-          rSection.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-        }
-      });
-    }
-    $('#btn-import-run').addEventListener('click', runImport);
-    $('#btn-print').addEventListener('click', () => window.print());
-    $('#btn-reset').addEventListener('click', () => {
-      if (!confirm('確定要清空所有勾選與輸入嗎？此動作無法復原。')) return;
-      try {
-        localStorage.removeItem(STORE_KEY);
-        localStorage.removeItem('au-audit-shared-student-v1');
-      } catch (e) {}
-      location.reload();
+    safe('課綱面板', () => {
+      const curBody = $('#cur-panel-body');
+      if (curBody) { curBody.style.height = '0px'; curBody.style.overflow = 'hidden'; }
     });
 
-    renderCurriculumBar();
-    setupCurriculumPanel();
+    // Toolbar：檔案按鈕已是原生 <label for>，滑鼠點擊零 JS 即可開檔。
+    // 這裡只補鍵盤無障礙（Enter/Space），不綁 click -> input.click() 以免被擋。
+    safe('工具列鍵盤', () => {
+      const labelKeys = ['#btn-toolbar-excel', '#btn-toolbar-cur', '#btn-cur-file'];
+      labelKeys.forEach((sel) => {
+        const lab = $(sel);
+        if (!lab) return;
+        lab.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const targetId = lab.getAttribute('for');
+            const input = targetId ? document.getElementById(targetId) : null;
+            if (input) {
+              try { input.click(); } catch (err) { reportErrorToUI('無法開啟選檔視窗：' + (err.message || err)); }
+            }
+          }
+        });
+      });
+    });
 
-    // 檔案選取與拖曳上傳（全功能智慧檔案路由：支援 .xlsx / .xls / .pdf / .odt / .json）
-    bindDropzone($('#excel-dropzone'), $('#excel-file-input'), handleUniversalFile);
-    bindDropzone($('#cur-dropzone'), $('#cur-file'), handleUniversalFile);
+    safe('一般按鈕', () => {
+      const importCard = $('#import');
+      const toggle = $('#btn-import-toggle');
+      if (toggle) toggle.addEventListener('click', () => {
+        if (importCard && importCard.getAttribute('data-open') !== 'true') $('#import-head').click();
+        if (importCard) importCard.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+      });
+      const btnRoadmap = $('#btn-roadmap-toggle');
+      if (btnRoadmap) {
+        btnRoadmap.addEventListener('click', () => {
+          const rSection = $('#roadmap-section');
+          if (rSection) {
+            rSection.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+          }
+        });
+      }
+      const runBtn = $('#btn-import-run');
+      if (runBtn) runBtn.addEventListener('click', runImport);
+      const printBtn = $('#btn-print');
+      if (printBtn) printBtn.addEventListener('click', () => window.print());
+      const resetBtn = $('#btn-reset');
+      if (resetBtn) resetBtn.addEventListener('click', () => {
+        if (!confirm('確定要清空所有勾選與輸入嗎？此動作無法復原。')) return;
+        try {
+          localStorage.removeItem(STORE_KEY);
+          localStorage.removeItem('au-audit-shared-student-v1');
+        } catch (e) {}
+        location.reload();
+      });
+    });
 
-    // 全視窗拖曳提示遮罩與全頁面拖曳支援（支援將檔案直接拖入瀏覽器任意處）
+    safe('課綱面板邏輯', () => {
+      renderCurriculumBar();
+      setupCurriculumPanel();
+    });
+
+    safe('拖曳區', () => {
+      // 檔案選取與拖曳上傳（全功能智慧檔案路由：支援 .xlsx / .xls / .pdf / .odt / .json）
+      bindDropzone($('#excel-dropzone'), $('#excel-file-input'), handleUniversalFile);
+      bindDropzone($('#cur-dropzone'), $('#cur-file'), handleUniversalFile);
+    });
+
+    safe('全域拖放', () => {
+    // 全視窗拖曳提示遮罩：平時 display:none（CSS 保證不遮擋點擊），
+    // 只有真正拖入「檔案」時才顯示。離開 / 放下 / 按 Esc 立即隱藏。
     const overlay = $('#window-drop-overlay');
     let dragCounter = 0;
 
+    const hasFiles = (e) => {
+      try {
+        const dt = e && e.dataTransfer;
+        if (!dt) return false;
+        if (dt.types) {
+          if (typeof dt.types.includes === 'function') return dt.types.includes('Files');
+          // Safari 舊版 DataTransfer.types 可能是 DOMStringList
+          for (let i = 0; i < dt.types.length; i++) {
+            if (dt.types[i] === 'Files') return true;
+          }
+        }
+        return false;
+      } catch (_) { return false; }
+    };
+    const showOverlay = () => { if (overlay) overlay.classList.add('is-active'); };
+    const hideOverlay = () => {
+      dragCounter = 0;
+      if (overlay) overlay.classList.remove('is-active');
+    };
+
     window.addEventListener('dragenter', (e) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
       dragCounter++;
-      if (overlay) overlay.classList.add('is-active');
+      showOverlay();
     });
 
     window.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
+      if (e.dataTransfer) {
+        try { e.dataTransfer.dropEffect = 'copy'; } catch (_) {}
+      }
       if (overlay && !overlay.classList.contains('is-active')) {
-        overlay.classList.add('is-active');
+        showOverlay();
       }
     });
 
     window.addEventListener('dragleave', (e) => {
+      // 只有離開視窗本體才遞減，避免子元素間移動誤觸
+      if (e.target === document || e.target === document.documentElement) {
+        dragCounter = 0;
+        if (overlay) overlay.classList.remove('is-active');
+        return;
+      }
       e.preventDefault();
       dragCounter--;
       if (dragCounter <= 0) {
         dragCounter = 0;
         if (overlay) overlay.classList.remove('is-active');
       }
+    });
+
+    // Esc 立即關閉遮罩，避免卡住
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hideOverlay();
     });
 
     window.addEventListener('drop', (e) => {
@@ -2697,28 +2833,35 @@
       if (!f) return;
       handleUniversalFile(f);
     });
+    });
 
     // 頁首即時小結：點一下回到「畢業結論」
-    const barV = $('#appbar-verdict');
-    if (barV) {
-      barV.setAttribute('role', 'button');
-      barV.setAttribute('tabindex', '0');
-      barV.setAttribute('title', '回到畢業結論');
-      const goTop = () => $('#verdict').scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
-      barV.addEventListener('click', goTop);
-      barV.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
-      });
-    }
+    safe('頁首小結', () => {
+      const barV = $('#appbar-verdict');
+      if (barV) {
+        barV.setAttribute('role', 'button');
+        barV.setAttribute('tabindex', '0');
+        barV.setAttribute('title', '回到畢業結論');
+        const goTop = () => $('#verdict').scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth', block: 'start' });
+        barV.addEventListener('click', goTop);
+        barV.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goTop(); }
+        });
+      }
+    });
 
-    setupMotion();   // 先決定動效模式，再畫第一次狀態
-    update();
-    inited = true;
+    safe('首次試算', () => {
+      setupMotion();   // 先決定動效模式，再畫第一次狀態
+      update();
+      inited = true;
+    });
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+      try { init(); } catch (err) { reportErrorToUI('啟動失敗：' + (err && err.message ? err.message : err)); }
+    });
   } else {
-    init();
+    try { init(); } catch (err) { reportErrorToUI('啟動失敗：' + (err && err.message ? err.message : err)); }
   }
 })();

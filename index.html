@@ -10,9 +10,42 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css?v=20260907v5" />
+<link rel="stylesheet" href="styles.css?v=20260907v7" />
 </head>
 <body>
+
+<!-- ===== 全域錯誤條：任何 JS 例外直接紅字浮現，不需開 F12 ===== -->
+<div class="fatal-error-bar" id="fatal-error-bar" role="alert" aria-live="assertive"></div>
+<script>
+/* 極早期全域報錯：app.js 載入前就生效，保證任何錯誤都有紅字反饋 */
+(function () {
+  function showFatal(msg) {
+    try {
+      var bar = document.getElementById('fatal-error-bar');
+      if (!bar) return;
+      bar.classList.add('is-show');
+      bar.innerHTML = '';
+      var b = document.createElement('b');
+      b.textContent = '⚠ 網頁發生錯誤：';
+      bar.appendChild(b);
+      bar.appendChild(document.createTextNode(' ' + msg + '（可按「清空重填」重置本機資料後重試）'));
+    } catch (_) {}
+  }
+  window.__showFatal = showFatal;
+  window.addEventListener('error', function (e) {
+    if (!e) return;
+    // 忽略 favicon / 字體等資源 404，避免誤報
+    if (e.target && e.target !== window && (e.target.tagName === 'LINK' || e.target.tagName === 'IMG')) return;
+    var msg = (e.message || '未知錯誤') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + (e.lineno || '?') : '');
+    showFatal(msg);
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    var msg = r ? (r.message || String(r)) : '非同步錯誤';
+    showFatal(msg);
+  });
+})();
+</script>
 
 <!-- ===== Icon system：一致線寬 SVG，全站以 <use> 取用（非 emoji） ===== -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -81,17 +114,17 @@
     <div class="verdict__bd" id="verdict-breakdown" aria-live="polite"></div>
   </section>
 
-  <!-- Toolbar -->
+  <!-- Toolbar：檔案按鈕一律用原生 <label for>，瀏覽器原生接管點擊，不依賴 JS input.click() -->
   <div class="toolbar">
-    <button class="btn btn--ghost" id="btn-import-toggle">
+    <button class="btn btn--ghost" id="btn-import-toggle" type="button">
       <svg class="icon"><use href="#i-sheet"/></svg> 成績單面板
     </button>
-    <button type="button" class="btn btn--primary" id="btn-toolbar-excel" title="點此直接選擇成績單 Excel 檔案進行試算">
+    <label class="btn btn--primary" id="btn-toolbar-excel" for="excel-file-input" title="點此直接選擇成績單 Excel 檔案進行試算" tabindex="0">
       <svg class="icon"><use href="#i-upload"/></svg> 選擇成績單 Excel
-    </button>
-    <button type="button" class="btn btn--secondary" id="btn-toolbar-cur" title="點此直接選擇課綱檔案（支援學校匯出之 PDF、ODT、JSON）">
+    </label>
+    <label class="btn btn--ghost" id="btn-toolbar-cur" for="cur-file" title="點此直接選擇課綱檔案（支援學校匯出之 PDF、ODT、JSON）" tabindex="0">
       <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱 (PDF/ODT)
-    </button>
+    </label>
     <button class="btn btn--ghost" id="btn-roadmap-toggle">
       <svg class="icon"><use href="#i-check"/></svg> 4 年 8 學期建議修課
     </button>
@@ -128,8 +161,8 @@
     </button>
     <div class="import__body" id="import-body">
       <div class="import__body-inner">
-        <!-- Excel 拖曳上傳區（點擊或拖曳至任何位置皆能 100% 彈出檔案視窗或讀取） -->
-        <div class="dropzone" id="excel-dropzone" tabindex="0" role="button" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
+        <!-- Excel 拖曳上傳區：原生 label，點任何位置都直接彈出選檔，不經 JS 轉發 -->
+        <label class="dropzone" id="excel-dropzone" for="excel-file-input" tabindex="0" aria-label="點擊選擇或拖曳成績單 Excel 檔案">
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -140,7 +173,7 @@
           <span class="btn btn--primary btn--sm dropzone__btn">
             <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇 Excel 檔案
           </span>
-        </div>
+        </label>
 
         <div class="import__result-bar" id="import-result-bar" hidden>
           <div class="student-badge" id="student-badge"></div>
@@ -219,8 +252,8 @@
           <span class="cur-info" id="cur-info"></span>
         </div>
 
-        <!-- 課綱拖曳上傳區 (支援 PDF / ODT / JSON) -->
-        <div class="dropzone" id="cur-dropzone" tabindex="0" role="button" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
+        <!-- 課綱拖曳上傳區：原生 label，點任何位置都直接彈出選檔，不經 JS 轉發 -->
+        <label class="dropzone" id="cur-dropzone" for="cur-file" tabindex="0" aria-label="點擊選擇或拖曳課綱檔案（支援 PDF、ODT、JSON）" style="margin-bottom: var(--sp-4);">
           <div class="dropzone__icon">
             <svg class="icon" style="width:2rem;height:2rem"><use href="#i-upload"/></svg>
           </div>
@@ -231,12 +264,12 @@
           <span class="btn btn--primary btn--sm dropzone__btn">
             <svg class="icon"><use href="#i-upload"/></svg> 點擊選擇課綱檔案
           </span>
-        </div>
+        </label>
 
         <div class="cur-actions">
-          <button type="button" class="btn btn--ghost" id="btn-cur-file" title="點此選擇課綱檔案（支援 PDF、ODT、JSON）">
+          <label class="btn btn--ghost" id="btn-cur-file" for="cur-file" title="點此選擇課綱檔案（支援 PDF、ODT、JSON）" tabindex="0">
             <svg class="icon"><use href="#i-upload"/></svg> 選擇課綱檔案
-          </button>
+          </label>
           <button class="btn btn--quiet" id="cur-export">
             <svg class="icon"><use href="#i-download"/></svg> 匯出目前課綱（當範本改）
           </button>
@@ -312,11 +345,11 @@
     } catch (e) {}
   }
 </script>
-<script src="curriculum.js?v=20260907v6"></script>
-<script src="app.js?v=20260907v6"></script>
+<script src="curriculum.js?v=20260907v7"></script>
+<script src="app.js?v=20260907v7"></script>
 
-<!-- 全域獨立隱藏檔案輸入框（置於最外層，不受任何折疊面板影響，點擊按鈕 100% 呼叫） -->
-<div class="sr-only-inputs-wrap" style="position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;overflow:hidden;pointer-events:none;" aria-hidden="true">
+<!-- 全域獨立隱藏檔案輸入框：由原生 <label for> 直接激活，不依賴 JS click() -->
+<div class="sr-only-inputs-wrap" aria-hidden="true">
   <input type="file" id="excel-file-input" accept=".xlsx,.xls,.pdf,.odt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf,application/vnd.oasis.opendocument.text,application/json" tabindex="-1" />
   <input type="file" id="cur-file" accept=".pdf,.odt,.json,.xlsx,.xls,application/pdf,application/vnd.oasis.opendocument.text,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" tabindex="-1" />
 </div>
